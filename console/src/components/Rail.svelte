@@ -24,7 +24,7 @@
   $effect(() => {
     // only steal the cursor when it is already on an answer - asking from the flow
     // (or from a skill) should leave you where you are and let that view react
-    if ($follow && tab === "answer" && $answers.length && $selection.kind === "answer") {
+    if ($follow && tab === "answer" && $answers.length && $selection.kind === "answer" && $selection.id !== oid($answers[0]._id)) {
       selection.set({ kind: "answer", id: oid($answers[0]._id) });
     }
   });
