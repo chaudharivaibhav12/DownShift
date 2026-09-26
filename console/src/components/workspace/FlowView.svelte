@@ -25,13 +25,15 @@
             hud.costF += $stats.frontierPerAnswer || 0;
             if (hud.paths[a.path] != null) hud.paths[a.path] += 1;
             const skill = a.skill ? a.skill.split(" ")[0] : "";
-            const meta = `${usd(a.cost)} · ${secs(a.ms)}`;
-            const line = { cheap: { tone: "good", head: "Cheap", text: `reused ${skill}` },
-                           mid: { tone: "warn", head: "Escalated", text: `cheap model slipped, mid model filled ${skill}` },
-                           learn: { tone: "info", head: "Learned", text: "new kind of question, frontier answered once" },
-                           frontier: { tone: "", head: "Frontier", text: "answered while its skill is being repaired" } }[a.path]
-                          || { tone: "bad", head: "No answer", text: a.question };
-            ticks = [{ ...line, meta, id: Math.random() }, ...ticks].slice(0, 4);
+            // lead with the question: a run of same-family answers otherwise reads as one
+            // line repeated, which looks stuck rather than like ten questions being answered
+            const meta = [skill, usd(a.cost), secs(a.ms)].filter(Boolean).join(" · ");
+            const line = { cheap: { tone: "good", head: "Cheap" },
+                           mid: { tone: "warn", head: "Escalated" },
+                           learn: { tone: "info", head: "Learned" },
+                           frontier: { tone: "", head: "Frontier" } }[a.path]
+                          || { tone: "bad", head: "No answer" };
+            ticks = [{ ...line, question: a.question, meta, id: Math.random() }, ...ticks].slice(0, 4);
           },
           ticker: (e) => (ticks = [{ ...e, id: Math.random() }, ...ticks].slice(0, 4)),
         });
@@ -101,7 +103,11 @@
 
   <section class="ticker" role="status">
     {#each ticks as t (t.id)}
-      <div class="tick"><b class={t.tone}>{t.head}</b> {t.text}{#if t.meta}<span class="m">{t.meta}</span>{/if}</div>
+      <div class="tick">
+        <b class={t.tone}>{t.head}</b>
+        {#if t.question}<span class="q">“{t.question}”</span>{:else}{t.text}{/if}
+        {#if t.meta}<span class="m">{t.meta}</span>{/if}
+      </div>
     {/each}
   </section>
 </div>
@@ -133,7 +139,10 @@
           border-radius: 6px; padding: 6px 10px; }
   .tick b.good { color: #7CE0A7; } .tick b.warn { color: #F2B01E; }
   .tick b.bad { color: #FF9C9C; } .tick b.info { color: #AFC0FF; }
-  .tick .m { color: #8A9099; margin-left: 8px; }
+  .tick { display: flex; align-items: baseline; gap: 8px; }
+  .tick .q { flex: 1; min-width: 0; font-family: var(--sans); font-size: 12.5px;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tick .m { color: #8A9099; flex-shrink: 0; }
 
   /* CSS2D labels are created by the scene at runtime, so Svelte's scoping never reaches them.
      They also must not use --ink / --green-ink: inside the console those are the LIGHT theme

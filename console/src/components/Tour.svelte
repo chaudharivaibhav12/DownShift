@@ -97,8 +97,11 @@
   .scrim.spot {
     background: transparent;
     box-shadow: 0 0 0 9999px rgba(21,23,25,.55);
+    /* `inset` is shorthand for top/right/bottom/left, so it MUST come before them -
+       declared after, it reset top/left to auto and the spotlight never moved. */
+    inset: auto;
     top: var(--y); left: var(--x); width: var(--w); height: var(--h);
-    inset: auto; border-radius: 10px; transition: all .25s ease;
+    border-radius: 10px; transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
   }
   .card { position: fixed; z-index: 41; background: var(--panel); border: 1px solid var(--line);
           border-radius: var(--r); box-shadow: 0 12px 40px rgba(21,23,25,.22); padding: 20px 22px; }
