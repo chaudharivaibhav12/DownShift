@@ -5,15 +5,22 @@
 3. Self-check: the template with the original params must reproduce the answer exactly.
 4. Test answers come from the template, and the gate checks the cheap model can fill the params.
 """
+from collections import Counter
+
 from bson import json_util
 
 from . import config, gate, ledger, llm, nl2mql, prompts, skills, trace
 
 
+GATE_TESTS = 8       # test questions the promotion gate uses
+HOLDOUT_TESTS = 4    # extra test questions kept unseen for the re-gate after reflection
+MIN_HOLDOUT = 3
+
+
 def _generalize(model, question, pipeline, schema_text):
     user = prompts.GENERALIZE.format(collection=config.DATA_COLLECTION, schema=schema_text,
                                      question=question, pipeline=json_util.dumps(pipeline))
-    res = llm.chat(model, "You are precise and reply with JSON only.", user, max_tokens=3000)
+    res = llm.chat(model, "You are precise and reply with JSON only.", user, max_tokens=4500)
     if res.error:
         return res, None, f"llm: {res.error}"
     try:
@@ -92,21 +99,34 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
     trace.step("self-check · template reproduces answer", "check")
 
     # 4. tests with expected answers from the template
-    tests = []
+    tests, dropped = [], []
     for t in spec.get("testQuestions") or []:
+        q = str(t.get("question", ""))
         try:
             p, typed = skills.render(draft, t.get("params") or {})
             # the answer key comes from the frontier's params: hold them to the same rules as the cheap model's
-            skills.check_grounded(draft["params"], typed, t["question"])
-            skills.check_dates(draft["params"], typed, t["question"])
+            skills.check_grounded(draft["params"], typed, q)
+            skills.check_dates(draft["params"], typed, q)
             r, _ = nl2mql.run_pipeline(data, p)
-            if r:
-                tests.append({"question": t["question"], "params": t.get("params") or {}, "expected": gate.canonical(r)})
-        except Exception:  # noqa: BLE001 - drop broken test questions
+        except skills.ParamError as e:
+            dropped.append({"question": q, "reason": "bad answer key", "detail": str(e)[:200]})
             continue
+        except Exception as e:  # noqa: BLE001 - drop broken test questions
+            dropped.append({"question": q, "reason": "error", "detail": f"{type(e).__name__}: {e}"[:200]})
+            continue
+        if not r:
+            dropped.append({"question": q, "reason": "empty result", "detail": ""})
+            continue
+        tests.append({"question": q, "params": t.get("params") or {}, "expected": gate.canonical(r)})
+    why = ", ".join(f"{n} {k}" for k, n in Counter(d["reason"] for d in dropped).items())
+    trace.step("check · test questions", "check", ok=len(tests) >= min_tests,
+               detail=f"{len(tests)} usable" + (f", dropped {why}" if why else ""))
     if len(tests) < min_tests:
-        out["error"] = f"only {len(tests)} usable test questions"
+        out["error"] = f"only {len(tests)} usable test questions (dropped: {why or 'none'})"
         return out
+    # the first GATE_TESTS go to the gate; extras (up to HOLDOUT_TESTS) are kept unseen for a re-gate after reflection
+    n_hold = min(HOLDOUT_TESTS, max(0, len(tests) - GATE_TESTS))
+    tests, holdout = tests[:len(tests) - n_hold], tests[len(tests) - n_hold:]
 
     skill = skills.new_skill(
         adb.skills, draft["skillId"],
@@ -117,6 +137,8 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
         fieldsUsed=skills.fields_used(template, skills.known_fields(schema_text)),
         createdBy=model,
         gateTests=tests,
+        holdoutTests=holdout,
+        testDrops=dropped[:12],
     )
     ledger.event(adb, "skill_candidate", skill=skill["skillId"], version=skill["version"])
     out["steps"].append(f"candidate {skill['skillId']} v{skill['version']}")
@@ -132,7 +154,7 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
 
     # 6. rejected? reflect on the failing vs passing traces and try once more with a better description
     if skill["status"] == "rejected" and config.REFLECT_ON_REJECT:
-        skill2, cost2, err = reflect(adb, data, skill, tests, report, model, batch_id=batch_id)
+        skill2, cost2, err = reflect(adb, data, skill, tests, report, model, batch_id=batch_id, holdout=holdout)
         out["cost"] += cost2
         if skill2:
             out["skill"] = skill2
@@ -143,10 +165,13 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
 
 
 def reflect(adb, data, skill: dict, tests: list[dict], report: dict, model: str,
-            batch_id: str | None = None) -> tuple[dict | None, float, str | None]:
+            batch_id: str | None = None, holdout: list[dict] | None = None) -> tuple[dict | None, float, str | None]:
     """Contrastive reflection: the frontier reads the gate's winning and losing traces and rewrites the
-    cheap-facing part of the skill (intent, param descriptions, examples). Template unchanged. Re-gated.
+    cheap-facing part of the skill (intent, param descriptions, examples). Template unchanged. Re-gated on
+    HELD-OUT test questions the reflection never saw (so the rewrite can't just fit the failures it read); with
+    fewer than MIN_HOLDOUT held-out tests it falls back to the original gate tests.
     Returns (new skill or None, cost, error)."""
+    holdout = holdout or []
     fmt = lambda xs: "\n".join(json_util.dumps(x) for x in xs) or "(none)"  # noqa: E731
     user = prompts.REFLECT.format(skillId=skill["skillId"], intent=skill["intent"],
                                   params=json_util.dumps(skill["params"]), examples=json_util.dumps(skill["examples"]),
@@ -178,13 +203,20 @@ def reflect(adb, data, skill: dict, tests: list[dict], report: dict, model: str,
         fieldsUsed=skill["fieldsUsed"],
         createdBy=model,
         gateTests=tests,
+        holdoutTests=holdout,
         reflectionNote=spec.get("note", ""),
         reflectedFrom=skill["version"],
     )
     ledger.event(adb, "skill_reflected", skill=skill2["skillId"], version=skill2["version"],
                  fromVersion=skill["version"], note=spec.get("note", ""))
+    unseen = len(holdout) >= MIN_HOLDOUT
+    regate = holdout if unseen else tests
+    # a small unseen set allows one miss (3/4, 2/3); the full gate keeps the normal bar
+    need = min(config.GATE_PASS_RATE, (len(regate) - 1) / len(regate)) if unseen else None
     with trace.timed() as t:
-        report2 = gate.run_gate(adb, data, skill2, tests)
-    trace.step(f"promotion gate · retry × {report2['total']}", "gate", ms=t["ms"], cost=report2["costUsd"],
+        report2 = gate.run_gate(adb, data, skill2, regate, required=need)
+    report2["regateOn"] = "held-out" if unseen else "same gate tests"
+    adb.skills.update_one({"_id": skill2["_id"]}, {"$set": {"gateReport.regateOn": report2["regateOn"]}})
+    trace.step(f"promotion gate · retry × {report2['total']} ({report2['regateOn']})", "gate", ms=t["ms"], cost=report2["costUsd"],
                ok=skill2["status"] == "promoted", detail=f"{report2['passed']}/{report2['total']} → {skill2['status']}")
     return skill2, res.cost_usd + report2["costUsd"], None

@@ -92,14 +92,30 @@ def _means_all(v, s: dict) -> bool:
     return len(parts) > 1 and bool(vals) and {_norm(p) for p in parts} >= {_norm(x) for x in vals}
 
 
+def _words(x) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(x).lower())
+
+
+def _contains_words(hay: list[str], needle: list[str]) -> bool:
+    """needle's words appear consecutively in hay ("In store" ~ "in-store", but not inside "Austin store").
+    A one-word needle may also match a joined form ("instore")."""
+    if not needle:
+        return True
+    n = len(needle)
+    if any(hay[i:i + n] == needle for i in range(len(hay) - n + 1)):
+        return True
+    joined = "".join(needle)
+    return n > 1 and joined in hay
+
+
 def check_grounded(spec: dict, typed: dict, question: str) -> None:
     """Every text param must appear in the question (ignoring case, spaces, punctuation). A value that doesn't is
     invented: the model picked the wrong skill or hallucinated a filter. Dates and numbers are derived, so skipped."""
-    q = _norm(question)
+    q_words = _words(question)
     for name, v in typed.items():
         if v is None or spec.get(name, {}).get("type", "string") != "string":
             continue
-        if _norm(v) not in q:
+        if not _contains_words(q_words, _words(v)):
             raise ParamError(f"{name}={v!r} is not in the question")
 
 

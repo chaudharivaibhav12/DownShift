@@ -26,8 +26,8 @@ Rules:
   leaves it out.
 - skillId: short snake_case name of the question family. intent: one sentence describing questions it answers.
 - originalParams: the param values that reproduce the working pipeline exactly.
-- testQuestions: 8 new, varied natural-language questions of the same family with the params each needs.
-  Use values that exist in the schema. Vary wording a lot, but every test question must state every required
+- testQuestions: 12 new, varied natural-language questions of the same family with the params each needs.
+  Use values that exist in the schema and dates inside the range the data covers. Vary wording a lot, but every test question must state every required
   param explicitly: a concrete number for counts/limits, a concrete month, quarter, half or year for dates.
   No vague periods ("summer", "recently") and no questions without a number when the skill needs one.
   At least 3 test questions must use each optional param and at least 2 must leave it out.

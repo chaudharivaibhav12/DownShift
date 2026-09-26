@@ -25,7 +25,7 @@ def main():
 
     c = db.client()
     adb, data = db.app_db(c), db.data_coll(c)
-    snap = schema.latest(adb.schema_registry, config.DATA_COLLECTION)
+    snap = schema.snapshot(adb.schema_registry, data, config.DATA_COLLECTION, refresh_only=True)
     if not snap:
         raise SystemExit("no schema snapshot: run python -m scripts.setup_db first")
     schema_text = schema.schema_for_prompt(snap["fields"])

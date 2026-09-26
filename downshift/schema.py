@@ -68,8 +68,22 @@ def infer_schema(coll, sample_size: int = 500, max_enum: int = 15) -> list[dict]
         vals = strings.get(path)
         if vals and len(vals) <= max_enum:
             entry["values"] = sorted(vals)
+        if "date" in types[path] and "[]" not in path:
+            try:  # exact range, so models don't ask about periods the data doesn't cover
+                lo = coll.find_one({path: {"$type": "date"}}, {path: 1}, sort=[(path, 1)])
+                hi = coll.find_one({path: {"$type": "date"}}, {path: 1}, sort=[(path, -1)])
+                get = lambda d: _dig(d, path)  # noqa: E731
+                entry["range"] = [get(lo).strftime("%Y-%m-%d"), get(hi).strftime("%Y-%m-%d")]
+            except Exception:  # noqa: BLE001
+                pass
         fields.append(entry)
     return fields
+
+
+def _dig(doc, path):
+    for k in path.split("."):
+        doc = doc[k]
+    return doc
 
 
 def schema_for_prompt(fields: list[dict]) -> str:
@@ -78,18 +92,26 @@ def schema_for_prompt(fields: list[dict]) -> str:
         line = f"- {f['path']}: {'/'.join(f['types'])}"
         if f.get("values"):
             line += f"  (values: {', '.join(f['values'])})"
+        if f.get("range"):
+            line += f"  (data covers {f['range'][0]} to {f['range'][1]})"
         lines.append(line)
     return "\n".join(lines)
 
 
-def snapshot(registry_coll, data_coll, collection_name: str) -> dict:
-    """Store a new schema version; record which field paths changed since the last one."""
+def snapshot(registry_coll, data_coll, collection_name: str, refresh_only: bool = False) -> dict:
+    """Store a new schema version; record which field paths changed since the last one.
+    refresh_only=True never records a change (that is the repair flow's job): it only refreshes details such as
+    date ranges on the latest version when the field paths are unchanged."""
     fields = infer_schema(data_coll)
     prev = registry_coll.find_one({"collection": collection_name}, sort=[("version", -1)])
     prev_paths = {f["path"] for f in prev["fields"]} if prev else set()
     new_paths = {f["path"] for f in fields}
-    if prev and prev_paths == new_paths:
-        return {**prev, "changedFields": []}  # nothing changed: don't mint a new version
+    if refresh_only and (not prev or prev_paths != new_paths):
+        return prev
+    if prev and prev_paths == new_paths:  # nothing changed: don't mint a new version (refresh details in place)
+        if prev["fields"] != fields:
+            registry_coll.update_one({"_id": prev["_id"]}, {"$set": {"fields": fields}})
+        return {**prev, "fields": fields, "changedFields": []}
     doc = {
         "collection": collection_name,
         "version": (prev["version"] + 1) if prev else 1,

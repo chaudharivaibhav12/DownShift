@@ -187,7 +187,7 @@ class Demo:
             template, params = TEMPLATES[fam]
             field = self._current_store_field(user.split("Question:")[0])
             tests = []
-            for i in range(8):
+            for i in range(12):
                 tp = benchmark.FAMILIES[fam]["params"](self.rng, self.ctx, i)
                 if fam == "top_items_by_tag_in_store":
                     tp["limit"] = 3

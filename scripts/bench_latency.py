@@ -25,14 +25,15 @@ def main():
     if not live:
         raise SystemExit("No live skills: run python -m scripts.run_downshift --reset-skills first.")
     system = prompts.SELECT_AND_FILL.format(today=date.today().isoformat(), skills=prompts.skills_block(live[:3]))
-    options = [("default", model, ""), ("sort=latency", model, "latency"), ("sort=throughput", model, "throughput"),
-               (":nitro", model.split(":")[0] + ":nitro", "")]
+    base = model.split(":")[0]
+    options = [("default", base, "", 0), ("sort=throughput", base, "throughput", 0), (":nitro", base + ":nitro", "", 0),
+               ("thru+cap 0.05", base, "throughput", 0.05), (":nitro+cap 0.05", base + ":nitro", "", 0.05)]
     print(f"{args.n} calls each · {model} · prompt ~{len(system) // 4} tokens\n")
     print(f"{'option':16} {'median ms':>9} {'p90 ms':>7} {'min ms':>7} {'$ / call':>10}  ok")
-    for name, m, sort in options:
+    for name, m, sort, cap in options:
         lat, cost, ok = [], [], 0
         for _ in range(args.n):
-            r = llm.chat(m, system, QUESTION, max_tokens=200, provider_sort=sort)
+            r = llm.chat(m, system, QUESTION, max_tokens=200, provider_sort=sort, max_price=cap)
             if r.error:
                 print(f"  {name}: {r.error[:120]}")
                 continue

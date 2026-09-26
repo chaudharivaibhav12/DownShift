@@ -25,6 +25,9 @@ MODELS = {
 # OpenRouter provider routing for our named models: "latency" | "throughput" | "price" | "" (OpenRouter default).
 # Not applied to openrouter/* routers (auto picks its own). Measure with: python -m scripts.bench_latency
 PROVIDER_SORT = os.environ.get("PROVIDER_SORT", "").strip()
+# Optional price cap (USD per million tokens, prompt and completion) for the CHEAP tier's provider, so a speed
+# preference (:nitro / sort) can't silently route to a pricier provider. e.g. CHEAP_MAX_PRICE=0.05
+CHEAP_MAX_PRICE = float(os.environ.get("CHEAP_MAX_PRICE", "0") or 0)
 
 DATA_DB = os.environ.get("DATA_DB", "sample_supplies")
 DATA_COLLECTION = os.environ.get("DATA_COLLECTION", "sales")

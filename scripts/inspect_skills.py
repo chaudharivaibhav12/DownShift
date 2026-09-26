@@ -22,6 +22,10 @@ def main():
         print("template:", s.get("templateJson", "")[:700])
         for f in rep.get("failures", []):
             print(f"  FAIL: {f.get('question')}\n        error: {f.get('error')}\n        model said: {f.get('modelOutput', '')[:250]!r}")
+        print(f"  tests: {len(s.get('gateTests') or [])} gate + {len(s.get('holdoutTests') or [])} held out"
+              f"{' · reflected from v' + str(s['reflectedFrom']) + ' (re-gate on ' + rep.get('regateOn', '?') + ')' if s.get('reflectedFrom') else ''}")
+        for d in s.get("testDrops") or []:
+            print(f"  dropped ({d.get('reason')}): {d.get('question', '')[:90]}  {d.get('detail', '')[:120]}")
         for t in (s.get("gateTests") or [])[:2]:
             print(f"  test example: {t['question']}  params={json_util.dumps(t.get('params'))}")
 

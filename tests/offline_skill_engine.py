@@ -98,7 +98,7 @@ def fake_chat(model, system, user, max_tokens=1500, retries=2):
         fam, p = REG[q]
         template, params = TEMPLATES[fam]
         tests = []
-        for i in range(8):
+        for i in range(12):
             tp = benchmark.FAMILIES[fam]["params"](rng, ctx, i)
             if fam == "top_items_by_tag_in_store":
                 tp["limit"] = 3
