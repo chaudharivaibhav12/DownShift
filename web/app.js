@@ -318,6 +318,13 @@
         `The cheap model's attempt did not check out${failed && failed.detail ? ` (${esc(failed.detail)})` : ""}, so the mid model filled <code>${esc(skill)}</code> instead.`];
     if (a.path === "learn") {
       const promoted = a.skill && a.skill.includes("promoted");
+      const gates = steps.filter((s) => s.kind === "gate");
+      const reflect = steps.find((s) => /reflect/.test(s.name || ""));
+      if (reflect && gates.length > 1)
+        return ["New kind of question: learned a skill, then fixed it",
+          `No live skill fit, so the frontier model wrote the pipeline once and generalized it into a skill. The gate rejected v1 (${esc(gates[0].detail)}): ` +
+          `the frontier compared the cheap model's passing and failing traces (“${esc(reflect.detail || "")}”), rewrote the descriptions, and v2 re-gated at ${esc(gates[1].detail)}. ` +
+          `<code>${esc(skill)}</code> ` + (promoted ? "now goes to the cheap model." : "was still not promoted.")];
       return ["New kind of question: learned a skill",
         `No live skill fit, so the frontier model wrote the pipeline once, then generalized it into <code>${esc(skill)}</code> with typed params. ` +
         (gate ? `The gate checked the cheap model can use it: ${esc(gate.detail)}. ` : "") +
@@ -433,6 +440,7 @@
       case "skill_candidate": return ["skills", `${sk} candidate`, ""];
       case "skill_promoted": return ["skills", `${sk} promoted · gate ${p.passed}/${p.total}`, ""];
       case "skill_rejected": return ["skills", `${sk} rejected · gate ${p.passed}/${p.total}`, "bad"];
+      case "skill_reflected": return ["skills", `${sk} reflected from v${p.fromVersion} · ${p.note || ""}`, "warn"];
       case "skill_flagged": return ["skills", `${sk} flagged · reads ${(p.fields || []).join(", ")}`, "warn"];
       case "skill_repaired": return ["skills", `${sk} repaired`, ""];
       case "repair_failed": return ["skills", `${sk} repair failed`, "bad"];
@@ -581,7 +589,7 @@
 
     // timeline
     const t0 = date(r.ts).getTime() - 3000;
-    const types = new Set(["documents_changed", "schema_changed", "skill_flagged", "skill_repaired", "repair_failed", "skill_promoted", "skill_rejected"]);
+    const types = new Set(["documents_changed", "schema_changed", "skill_flagged", "skill_repaired", "repair_failed", "skill_promoted", "skill_rejected", "skill_reflected"]);
     const tl = S.events.filter((e) => types.has(e.type) && date(e.ts).getTime() >= t0).reverse()
       .map((e) => `<div><span class="t">${hms(e.ts)}</span>${esc(eventLine(e)[1])}</div>`).join("");
 
@@ -604,7 +612,7 @@
     const rows = [...S.skills].sort((a, b) => a.skillId.localeCompare(b.skillId) || b.version - a.version);
     $("skillsTable").innerHTML = `<thead><tr><th>Skill</th><th>Version</th><th>Status</th><th>Fields read</th><th>Gate</th><th>Answers</th><th>Created by</th></tr></thead><tbody>` +
       (rows.length ? rows.map((s) => `<tr><td class="mono">${esc(s.skillId)}<div class="muted" style="font-family:var(--sans);font-size:12px;margin-top:3px">${esc(s.intent || "")}</div></td>
-        <td class="mono">v${s.version}${s.repairedFrom ? ` <span class="muted">(from v${s.repairedFrom})</span>` : ""}</td>
+        <td class="mono">v${s.version}${s.repairedFrom ? ` <span class="muted">(repaired from v${s.repairedFrom})</span>` : ""}${s.reflectedFrom ? ` <span class="muted">(reflected from v${s.reflectedFrom})</span>` : ""}${s.reflectionNote ? `<div class="muted" style="font-family:var(--sans);font-size:12px;margin-top:3px">“${esc(s.reflectionNote)}”</div>` : ""}</td>
         <td><span class="status ${esc(s.status)}">${esc(s.status)}</span></td>
         <td><span class="fchips">${(s.fieldsUsed || []).map((f) => `<span>${esc(f)}</span>`).join("")}</span></td>
         <td class="mono">${s.gateReport ? `${s.gateReport.passed}/${s.gateReport.total}` : "—"}</td>

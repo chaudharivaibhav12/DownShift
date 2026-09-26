@@ -70,6 +70,9 @@ def concrete(fam, p):
         pipe[-1] = {"$limit": p["limit"]}
     return pipe
 
+REFLECTED: set[str] = set()
+
+
 def fake_chat(model, system, user, max_tokens=1500, retries=2):
     tier = next(k for k, v in config.MODELS.items() if v == model)
     calls[tier] = calls.get(tier, 0) + 1
@@ -81,6 +84,12 @@ def fake_chat(model, system, user, max_tokens=1500, retries=2):
         fixed = old.replace('"$storeLocation"', '"$store_location"').replace('"storeLocation"', '"store_location"')
         return llm.LLMResult(text=json_util.dumps({"note": "storeLocation is now store_location"})[:-1]
                              + ', "template": ' + fixed + "}", model=model, cost_usd=cost)
+
+    if "TASK: REFLECT" in user:
+        sid = re.search(r"^Skill: (.*)$", user, re.M).group(1)
+        REFLECTED.add(sid)
+        assert "got WRONG" in user and "missing param" in user, "reflection prompt must carry the failing traces"
+        return R({"intent": "reflected", "params": {}, "examples": ["x"], "note": "cheap model dropped a param"})
 
     if "TASK: GENERALIZE" in user:
         q = re.search(r"^Question: (.*)$", user, re.M).group(1)
@@ -103,7 +112,7 @@ def fake_chat(model, system, user, max_tokens=1500, retries=2):
         if f"skillId: {fam}" not in system:
             return R({"skillId": None})
         sp = skill_params(fam, p)
-        if tier == "cheap" and rng.random() < 0.15:     # cheap model slips sometimes
+        if tier == "cheap" and fam not in REFLECTED and rng.random() < 0.15:     # cheap model slips until the skill is reflected
             sp = dict(sp); sp.pop(next(iter(sp)))        # forgets a required param
         return R({"skillId": fam, "params": sp})
 
@@ -135,5 +144,14 @@ paths = [d["path"] for d in adb.ledger.find({"meta.mode": "downshift"})]
 live = skills.promoted(adb.skills)
 assert len(live) == 3, f"expected 3 promoted skills, got {len(live)}"
 assert calls["cheap"] > 0 and calls["frontier"] >= 6
+# 3. reflection: every rejected v1 must have been followed by a reflected, promoted v2 with the same template
+rejected = list(adb.skills.find({"status": "rejected"}))
+assert rejected, "expected at least one gate rejection in this run"
+for r in rejected:
+    v2 = adb.skills.find_one({"skillId": r["skillId"], "reflectedFrom": r["version"]})
+    assert v2 and v2["status"] == "promoted", f"{r['skillId']} v{r['version']} rejected but not repaired by reflection"
+    assert v2["templateJson"] == r["templateJson"] and v2["params"].keys() == r["params"].keys()
+assert adb.events.count_documents({"type": "skill_reflected"}) == len(rejected)
+print(f"reflection: {len(rejected)} rejected skill(s) reflected and promoted")
 print(f"\nmodel calls: {calls}")
 print("ALL SKILL-ENGINE CHECKS PASSED")

@@ -28,6 +28,8 @@ APP_DB = os.environ.get("APP_DB", "downshift")
 
 # Share of a skill's test questions the cheap model must get right for the skill to go live
 GATE_PASS_RATE = float(os.environ.get("GATE_PASS_RATE", "0.85"))
+# On gate rejection, reflect on failing vs passing traces and re-gate once (0 disables)
+REFLECT_ON_REJECT = int(os.environ.get("REFLECT_ON_REJECT", "1"))
 
 # Query safety limits
 MAX_TIME_MS = 15_000

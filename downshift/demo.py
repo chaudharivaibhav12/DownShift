@@ -19,6 +19,8 @@ from .demo_data import make_data
 LATENCY = {"cheap": 0.25, "mid": 0.5, "frontier": 0.9, "auto": 0.6}
 COST = {"frontier": 0.02, "mid": 0.002, "cheap": 0.0002, "auto": 0.01}
 SLIP_EVERY = 9  # every 9th cheap fill forgets a param, so escalation to mid shows up in a replay
+WEAK_FAMILY = "top_items_by_tag_in_store"  # its v1 description is too thin: the cheap model drops `tag` in 3 of 8 gate
+                                           # questions until the frontier reflects and rewrites the description
 
 TEMPLATES = {
     "top_stores_by_revenue": ([
@@ -61,6 +63,8 @@ class Demo:
         self.cases: list[dict] = []
         self.fixed: dict[str, tuple[str, dict]] = {}   # skill test question -> (family, skill params); survives restarts
         self.fills = 0
+        self.gate_calls = 0
+        self.reflected: set[str] = set()
 
     # --------------------------------------------------------------- setup
     def install(self):
@@ -109,6 +113,8 @@ class Demo:
         adb.test_cases.insert_many([dict(x) for x in self.cases])
         self.fills = 0
         self.fixed = {}
+        self.gate_calls = 0
+        self.reflected = set()
         self.reg = {c["question"]: (c["family"], dict(c["params"])) for c in self.cases}
         self.ctx = benchmark.data_context(data)
 
@@ -165,6 +171,16 @@ class Demo:
             fixed = self._to_field(old, field)
             return R('{"note": "store field is now ' + field + '", "template": ' + fixed + "}")
 
+        if "TASK: REFLECT" in user:
+            sid = re.search(r"^Skill: (.*)$", user, re.M).group(1)
+            params = json_util.loads(re.search(r"^Params \(JSON\): (.*)$", user, re.M).group(1))
+            self.reflected.add(sid)
+            fixed = {k: {"description": v.get("description", "") + " Required: always read it from the question, even when the question leads with the store or the count."}
+                     for k, v in params.items()}
+            return R(json_util.dumps({"intent": f"Answer {sid.replace('_', ' ')} questions; every param is filled from the question",
+                                      "params": fixed, "examples": [f"Best-selling office items in Austin: top 3", f"Top 5 stationary products sold at the Denver store"],
+                                      "note": "losing traces all name the store before the tag; the cheap model dropped `tag`. Descriptions now say each param is required and where it appears."}))
+
         if "TASK: GENERALIZE" in user:
             q = re.search(r"^Question: (.*)$", user, re.M).group(1)
             fam, p = self.resolve(q)
@@ -197,6 +213,10 @@ class Demo:
             if tier == "cheap" and self.fills % SLIP_EVERY == 5:
                 sp = dict(sp)
                 sp.pop(next(iter(sp)))
+            if tier == "cheap" and fam == WEAK_FAMILY and fam not in self.reflected and "(test " in user:
+                self.gate_calls += 1
+                if self.gate_calls % 3 == 1:  # 3 of 8 gate questions -> 5/8, below the 85% bar
+                    sp = {k: v for k, v in sp.items() if k != "tag"}
             return R(json_util.dumps({"skillId": fam, "params": sp}))
 
         # concrete pipeline, written against the current schema
