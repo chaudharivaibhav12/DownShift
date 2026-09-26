@@ -30,7 +30,7 @@ def run_gate(adb, data, skill: dict, tests: list[dict], model: str | None = None
     """tests: [{question, expected: canonical rows}]. Promotes or rejects the skill; returns the report."""
     model = model or config.MODELS["cheap"]
     required = config.GATE_PASS_RATE if required is None else required
-    passed, failures, cost = 0, [], 0.0
+    passed, failures, passes, cost = 0, [], [], 0.0
     for t in tests:
         res, obj, err = fill(model, t["question"], [skill])
         cost += res.cost_usd
@@ -51,11 +51,12 @@ def run_gate(adb, data, skill: dict, tests: list[dict], model: str | None = None
                        skill=f"{skill['skillId']}@v{skill['version']}")
         if ok:
             passed += 1
+            passes.append({"question": t["question"], "params": obj.get("params") or {}})
         else:
             failures.append({"question": t["question"], "error": err, "modelOutput": res.text[:300]})
 
     total = len(tests)
-    report = {"passed": passed, "total": total, "model": model, "costUsd": round(cost, 6), "failures": failures[:5]}
+    report = {"passed": passed, "total": total, "model": model, "costUsd": round(cost, 6), "failures": failures[:5], "passes": passes[:5]}
     if total and passed / total >= required:
         skills.promote(adb.skills, skill, report)
         ledger.event(adb, "skill_promoted", skill=skill["skillId"], version=skill["version"], passed=passed, total=total)

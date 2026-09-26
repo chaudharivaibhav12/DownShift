@@ -96,7 +96,8 @@ How a question is answered (`downshift/answer.py`):
 2. **Cheap path:** the cheap model picks a skill and fills its parameters. Parameters are type-checked (`skills.validate_params`), substituted as typed values, safety-checked and run.
 3. **Escalation:** bad parameters, an error or an empty result → the mid model tries the same.
 4. **Learn path** (`downshift/learn.py`), when no skill fits or mid fails: the frontier model answers with a concrete pipeline, then generalizes it into a template with typed parameters and 8 test questions. The template must reproduce the original answer exactly (self-check).
-5. **Gate** (`downshift/gate.py`): the cheap model must answer at least `GATE_PASS_RATE` (default 85%) of the test questions correctly with the skill. Pass → `promoted` (the previous version is `retired`). Fail → `rejected`, and the next question of that kind learns again.
+5. **Gate** (`downshift/gate.py`): the cheap model must answer at least `GATE_PASS_RATE` (default 85%) of the test questions correctly with the skill. Pass → `promoted` (the previous version is `retired`). Fail → `rejected`, then:
+6. **Reflect** (`learn.reflect`): the frontier model reads the gate's winning and losing traces side by side, finds the pattern (an omitted param, an inclusive/exclusive bound, a phrasing) and rewrites only the cheap-facing part of the skill: intent, param descriptions, examples. The template and the param contract (names, types, optional, values) stay fixed. The new version is re-gated once. This is contrastive reflection in the Strands [Harness Optimizer](https://strandsagents.com/blog/introducing-harness-optimizer/) sense: the skill is the tunable harness component, the gate is the reward, the traces in `ledger`/`runs` are the rollouts. Event: `skill_reflected`. `REFLECT_ON_REJECT=0` disables it.
 
 Every model call is logged to `ledger` with its path (`cheap`, `mid`, `learn`, `gate`), and skill lifecycle events go to `events` for the console.
 

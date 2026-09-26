@@ -74,3 +74,27 @@ Rewrite the template so it answers the same questions on the new schema. Keep ev
 output shape (same group keys and output field names) unless the change forces otherwise.
 
 Reply with ONLY JSON: {{"template": [ ...stages... ], "note": "one sentence on what you changed"}}"""
+
+
+REFLECT = """TASK: REFLECT
+A saved skill failed its promotion gate: the cheap model could not fill its parameters reliably.
+The pipeline template is correct (it passed a self-check). Only the cheap-facing description is at fault.
+
+Skill: {skillId}
+Intent: {intent}
+Params (JSON): {params}
+Examples: {examples}
+
+Gate traces the cheap model got RIGHT (question -> params it filled):
+{passes}
+
+Gate traces the cheap model got WRONG (question, error, its raw output):
+{failures}
+
+Contrast the winning and losing traces. Find what the losing questions have in common that the descriptions
+do not cover (a phrasing, an inclusive/exclusive bound, an omitted param, a value spelling), then rewrite the
+intent, the param descriptions and the examples so a small model fills the params correctly.
+Rules: keep every param name, type, optional flag and values list exactly as given. Change descriptions only.
+
+Reply with ONLY JSON: {{"intent": "...", "params": {{"name": {{"description": "..."}}}}, "examples": ["..."],
+  "note": "one sentence: the failure pattern and what you changed"}}"""

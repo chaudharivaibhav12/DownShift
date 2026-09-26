@@ -433,7 +433,8 @@ function syncSkills(first) {
       const eq = res?.equivalence || [];
       ticker(`<b style="color:#7CE0A7">Repaired</b> ${esc(s.skillId)} → v${s.version}<span class="m">${eq.filter((e) => e.same).length}/${eq.length} answers identical · gate ${esc(res?.gate || "")}</span>`);
     }
-    if (s.status === "rejected") ticker(`<b style="color:#FF9C9C">Rejected</b> ${esc(s.skillId)} v${s.version} failed the gate`);
+    if (s.status === "rejected") ticker(`<b style="color:#FF9C9C">Rejected</b> ${esc(s.skillId)} v${s.version} failed the gate<span class="m">frontier reflecting on the failing traces</span>`);
+    if (s.status === "promoted" && s.reflectedFrom) ticker(`<b style="color:#7CE0A7">Reflected</b> ${esc(s.skillId)} v${s.reflectedFrom} → v${s.version}<span class="m">${esc(s.reflectionNote || "")}</span>`);
   }
   if (first) {
     for (const [id, s] of latest) {
