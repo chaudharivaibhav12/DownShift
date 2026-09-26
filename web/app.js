@@ -59,15 +59,15 @@
       S = await api("/api/state");
       render();
     } catch (e) {
-      $("live").classList.add("off");
+      $("liveDot").classList.add("off");
     }
   }
 
   function connect() {
     const es = new EventSource("/api/stream");
-    es.onopen = () => $("live").classList.remove("off");
+    es.onopen = () => $("liveDot").classList.remove("off");
     es.onmessage = refreshSoon;
-    es.onerror = () => $("live").classList.add("off");
+    es.onerror = () => $("liveDot").classList.add("off");
   }
 
   function toast(msg) {
@@ -100,6 +100,13 @@
       (st.flagged ? `<span style="color:#8A6200"><b style="color:#8A6200">${st.flagged}</b> flagged</span>` : "") +
       `<span><b>${usd(st.spent, 3)}</b> spent</span>`;
     $("demoTag").hidden = !S.demo;
+    if (S.demo) {
+      const standin = S.mode === "standin";
+      $("demoTag").textContent = standin ? "Atlas · stand-in models" : "offline demo";
+      $("demoTag").title = standin
+        ? "Real MongoDB from MONGODB_URI, scripted stand-in models (no OpenRouter calls). Restart without DOWNSHIFT_MODELS=standin for real models."
+        : "In-memory MongoDB and a scripted stand-in model. Set .env and restart without DOWNSHIFT_DEMO for the real thing.";
+    }
     $("resetBtn").hidden = !S.demo;
     const busy = !!job.name;
     $("replayBtn").disabled = busy;
@@ -650,7 +657,7 @@
       await api("/api/reset", { method: "POST" });
       full.clear(); selected = null; follow = true; renderedKey = null; seenEvents = new Set(); firstFeed = true;
       $("chips").dataset.key = "";
-      toast("Demo reset: fresh data, no skills");
+      toast(S && S.mode === "standin" ? "Reset: skills and ledger cleared, Atlas sample data kept" : "Demo reset: fresh data, no skills");
       refresh();
     } catch (e) { toast(e.message); }
   });

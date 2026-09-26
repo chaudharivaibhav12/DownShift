@@ -17,7 +17,7 @@ def _generalize(model, question, pipeline, schema_text):
     if res.error:
         return res, None, f"llm: {res.error}"
     try:
-        return res, json_util.loads(llm.extract_json_text(res.text)), None
+        return res, skills.loads_model_json(llm.extract_json_text(res.text)), None
     except Exception as e:  # noqa: BLE001
         return res, None, f"parse: {e}"
 

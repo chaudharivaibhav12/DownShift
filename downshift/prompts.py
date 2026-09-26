@@ -13,6 +13,7 @@ Working pipeline (Extended JSON):
 
 Make a template of the same pipeline where every value that came from the question (dates, numbers, names,
 tags, limits) becomes a placeholder string "{{{{name}}}}" used as a whole JSON value. Keep everything else identical.
+A date placeholder is the bare string "{{{{start}}}}" (it is converted to a real date), never {{"$date": "{{{{start}}}}"}}.
 Rules:
 - Param types: "date" (ISO 8601 date, e.g. "2017-08-01"), "int", or "string". Give each a short description,
   including whether date bounds are inclusive or exclusive.
@@ -70,6 +71,7 @@ Params (keep exactly these names and types): {params}
 Old template (Extended JSON, "{{{{name}}}}" strings are placeholders):
 {template}
 
+Write date placeholders as bare strings like "{{{{start}}}}", never inside {{"$date": ...}}.
 Rewrite the template so it answers the same questions on the new schema. Keep every placeholder and the
 output shape (same group keys and output field names) unless the change forces otherwise.
 

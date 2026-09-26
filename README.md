@@ -24,6 +24,13 @@ Open http://localhost:8000 (first start takes ~10 s while it builds the demo dat
 
 With `.env` filled in (after the setup steps below), run `uvicorn server.app:app --port 8000` without `DOWNSHIFT_DEMO` and the same console runs on Atlas and OpenRouter.
 
+**Hybrid mode (real Atlas, stand-in models).** With only `MONGODB_URI` set (no OpenRouter key yet), run
+`$env:DOWNSHIFT_MODELS="standin"; uvicorn server.app:app --port 8000` (PowerShell). The console queries your real
+Atlas data and does real schema renames; the models are the scripted stand-ins, so costs are illustrative. The badge
+reads "Atlas · stand-in models". Reset wipes only the `downshift` app database and renames `store_location` back to
+`storeLocation`; restarting the server keeps what's there. In PowerShell, clear the variable with
+`Remove-Item Env:DOWNSHIFT_MODELS` before a fully real run.
+
 API: `POST /api/ask {question}`, `POST /api/replay`, `POST /api/schema-change {old?, new?}`, `POST /api/reset`, `GET /api/state`, `GET /api/answers/{id}`, `GET /api/stream` (server-sent events).
 
 ## Setup

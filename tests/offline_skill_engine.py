@@ -77,7 +77,7 @@ def fake_chat(model, system, user, max_tokens=1500, retries=2):
     R = lambda obj: llm.LLMResult(text=json_util.dumps(obj), model=model, cost_usd=cost, tokens_in=400, tokens_out=150, latency_ms=500)
 
     if "TASK: REPAIR" in user:
-        old = re.search(r"Old template \(Extended JSON.*?\n(.*?)\n\nRewrite", user, re.S).group(1)
+        old = re.search(r"Old template \(Extended JSON.*?\n(.*?)\n\n(?:Write|Rewrite)", user, re.S).group(1)
         fixed = old.replace('"$storeLocation"', '"$store_location"').replace('"storeLocation"', '"store_location"')
         return llm.LLMResult(text=json_util.dumps({"note": "storeLocation is now store_location"})[:-1]
                              + ', "template": ' + fixed + "}", model=model, cost_usd=cost)

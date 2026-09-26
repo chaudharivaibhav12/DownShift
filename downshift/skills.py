@@ -26,6 +26,16 @@ class ParamError(ValueError):
     pass
 
 
+# Models often wrap a date placeholder as Extended JSON: {"$date": "{{start}}"}. json_util would try to parse
+# "{{start}}" as a date and fail; the placeholder already renders to a real date, so unwrap it before parsing.
+_DATE_PH = re.compile(r'\{\s*"\$date"\s*:\s*("\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}")\s*\}')
+
+
+def loads_model_json(text: str):
+    """Parse a model's (Extended) JSON reply that may contain placeholders."""
+    return json_util.loads(_DATE_PH.sub(r"\1", text))
+
+
 # ------------------------------------------------------------------ params
 
 def _parse_date(v) -> datetime:

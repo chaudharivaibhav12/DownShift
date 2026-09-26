@@ -479,15 +479,22 @@ function syncHeader() {
   $("schemaBtn").disabled = busy;
   $("schemaBtn").textContent = S.job.name === "schema-change" ? "Repairing…" : "Simulate schema change";
   $("demoTag").hidden = !S.demo;
+  if (S.demo) {
+    const standin = S.mode === "standin";
+    $("demoTag").textContent = standin ? "Atlas · stand-in models" : "offline demo";
+    $("demoTag").title = standin
+      ? "Real MongoDB from MONGODB_URI, scripted stand-in models (no OpenRouter calls). Restart without DOWNSHIFT_MODELS=standin for real models."
+      : "In-memory MongoDB and a scripted stand-in model. Set .env and restart without DOWNSHIFT_DEMO for the real thing.";
+  }
   $("resetBtn").hidden = !S.demo;
 }
 
 async function refresh() {
   try {
     S = await api("/api/state");
-    $("live").classList.remove("off");
+    $("liveDot").classList.remove("off");
   } catch {
-    $("live").classList.add("off");
+    $("liveDot").classList.add("off");
     return;
   }
   const first = !booted;
@@ -501,7 +508,7 @@ let rt = null;
 const refreshSoon = () => { clearTimeout(rt); rt = setTimeout(refresh, 100); };
 const es = new EventSource("/api/stream");
 es.onmessage = refreshSoon;
-es.onerror = () => $("live").classList.add("off");
+es.onerror = () => $("liveDot").classList.add("off");
 setInterval(refresh, 8000);
 refresh();
 

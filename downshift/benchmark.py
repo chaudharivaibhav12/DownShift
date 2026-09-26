@@ -131,12 +131,12 @@ def f3_rows(result):
 F3_TEMPLATES = [
     "For {scope} in {year}, what share of orders used a coupon, broken down by purchase method?",
     "Coupon usage rate by purchase method for {scope}, {year}?",
-    "How often were coupons used in {year} for {scope}, split by how the purchase was made?",
+    "In {year}, for {scope}, what share of orders used a coupon, split by how the purchase was made?",
     "By purchase method, what fraction of {year} sales used a coupon ({scope})?",
     "Show coupon redemption rate per purchase method in {year} for {scope}.",
     "What percentage of orders used coupons in {year}, per purchase method, for {scope}?",
     "In {year}, for {scope}: coupon use rate by purchase method.",
-    "Break down coupon usage by purchase method for {scope} during {year}.",
+    "Break down the coupon usage rate (share of orders with a coupon) by purchase method for {scope} during {year}.",
     "Which purchase methods saw the most coupon use in {year} ({scope})? Give the rate for each.",
     "{year}, {scope}: share of purchases with a coupon, by purchase method.",
 ]

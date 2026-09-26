@@ -1,6 +1,8 @@
 """Demo mode: run Downshift fully offline with an in-memory database and a scripted stand-in model.
 
-Turn on with DOWNSHIFT_DEMO=1. Everything else (answer loop, gate, repair, ledger, console) is the real code;
+Turn on with DOWNSHIFT_DEMO=1. Hybrid mode (DOWNSHIFT_MODELS=standin, no DOWNSHIFT_DEMO) uses the same stand-in
+model but your real MongoDB from MONGODB_URI, so the console runs on real Atlas data before an OpenRouter key exists.
+Everything else (answer loop, gate, repair, ledger, console) is the real code;
 only MongoDB (mongomock) and the model calls (scripted) are stand-ins. Free-form questions are mapped to the
 closest benchmark question, so the demo only knows the three question families.
 """
@@ -42,36 +44,71 @@ TEMPLATES = {
          "store": {"type": "string", "optional": True, "description": "store location; omit for all stores"}}),
 }
 STORE_FIELDS = ("storeLocation", "store_location")
+APP_COLLECTIONS = ("skills", "test_cases", "schema_registry", "events", "runs", "ledger", "repairs", "answers")
 
 
 class Demo:
-    def __init__(self):
-        import mongomock
-        self.client = mongomock.MongoClient()
+    def __init__(self, real_db: bool = False):
+        self.real_db = real_db
+        if real_db:
+            self.client = db.client()          # real MongoDB from MONGODB_URI
+        else:
+            import mongomock
+            self.client = mongomock.MongoClient()
         self.lock = threading.RLock()
         self.rng = random.Random(7)
         self.reg: dict[str, tuple[str, dict]] = {}
         self.cases: list[dict] = []
+        self.fixed: dict[str, tuple[str, dict]] = {}   # skill test question -> (family, skill params); survives restarts
         self.fills = 0
 
     # --------------------------------------------------------------- setup
     def install(self):
-        db.client = lambda: self.client
+        if not self.real_db:
+            db.client = lambda: self.client
         llm.chat = self.chat
         nl2mql.llm.chat = self.chat
-        self.reset()
+        adb = db.app_db(self.client)
+        if self.real_db and adb.test_cases.count_documents({}) and adb.schema_registry.count_documents({}):
+            self._load()      # real DB: keep what's there across server restarts; Reset wipes it
+        else:
+            self.reset()
+
+    def _load(self):
+        data, adb = db.data_coll(self.client), db.app_db(self.client)
+        self.cases = list(adb.test_cases.find({}, {"_id": 0}).sort("caseId", 1))
+        self.fills = 0
+        self.reg = {c["question"]: (c["family"], dict(c["params"])) for c in self.cases}
+        self.ctx = benchmark.data_context(data)
+        # Test questions the stand-in invented for existing skills live in each skill's gateTests; reload them so a
+        # server restart doesn't make the gate guess params for them.
+        self.fixed = {}
+        for sk in adb.skills.find({}, {"skillId": 1, "gateTests": 1}):
+            for t in sk.get("gateTests") or []:
+                self.fixed[t["question"]] = (sk["skillId"], dict(t.get("params") or {}))
 
     def reset(self):
-        for name in self.client.list_database_names():
-            self.client.drop_database(name)
         data, adb = db.data_coll(self.client), db.app_db(self.client)
-        make_data(data)
-        for name in ("skills", "test_cases", "schema_registry", "events", "runs", "ledger", "repairs", "answers"):
-            adb.create_collection(name)
+        if self.real_db:
+            # Real database: keep the sample data (only undo our own demo rename) and wipe Downshift's app DB.
+            if data.count_documents({"store_location": {"$exists": True}}, limit=1):
+                data.update_many({"store_location": {"$exists": True}}, {"$rename": {"store_location": "storeLocation"}})
+            if data.estimated_document_count() == 0:
+                raise SystemExit(f"{config.DATA_DB}.{config.DATA_COLLECTION} is empty: load the Atlas sample dataset first.")
+            for name in APP_COLLECTIONS:
+                adb.drop_collection(name)
+            db.ensure_collections(adb)
+        else:
+            for name in self.client.list_database_names():
+                self.client.drop_database(name)
+            make_data(data)
+            for name in APP_COLLECTIONS:
+                adb.create_collection(name)
         schema.snapshot(adb.schema_registry, data, config.DATA_COLLECTION)
         self.cases = benchmark.build_cases(data)
         adb.test_cases.insert_many([dict(x) for x in self.cases])
         self.fills = 0
+        self.fixed = {}
         self.reg = {c["question"]: (c["family"], dict(c["params"])) for c in self.cases}
         self.ctx = benchmark.data_context(data)
 
@@ -123,7 +160,7 @@ class Demo:
                                  latency_ms=int(LATENCY[tier] * 1000))
 
         if "TASK: REPAIR" in user:
-            old = re.search(r"Old template \(Extended JSON.*?\n(.*?)\n\nRewrite", user, re.S).group(1)
+            old = re.search(r"Old template \(Extended JSON.*?\n(.*?)\n\n(?:Write|Rewrite)", user, re.S).group(1)
             field = self._current_store_field(user.split("Current schema:")[1])
             fixed = self._to_field(old, field)
             return R('{"note": "store field is now ' + field + '", "template": ' + fixed + "}")
@@ -141,16 +178,20 @@ class Demo:
                 tq = benchmark.FAMILIES[fam]["templates"][(i + 3) % 10].format(**tp) + f" (test {i + 1})"
                 qp = {k: v for k, v in tp.items() if k not in ("period", "scope")}
                 self.reg[tq] = (fam, qp)
+                self.fixed[tq] = (fam, self.skill_params(fam, qp))
                 tests.append({"question": tq, "params": self.skill_params(fam, qp)})
             obj = {"skillId": fam, "intent": f"Answer {fam.replace('_', ' ')} questions", "params": params,
                    "template": template, "originalParams": self.skill_params(fam, p), "testQuestions": tests}
             return R(self._to_field(json_util.dumps(obj), field))
 
         if "TASK: SELECT_AND_FILL" in system:
-            fam, p = self.resolve(user)
+            if user in self.fixed:
+                fam, sp = self.fixed[user][0], dict(self.fixed[user][1])
+            else:
+                fam, p = self.resolve(user)
+                sp = self.skill_params(fam, p)
             if f"skillId: {fam}" not in system:
                 return R('{"skillId": null}')
-            sp = self.skill_params(fam, p)
             if tier == "cheap":
                 self.fills += 1
             if tier == "cheap" and self.fills % SLIP_EVERY == 5:
@@ -169,9 +210,9 @@ class Demo:
 _demo: Demo | None = None
 
 
-def install() -> Demo:
+def install(real_db: bool = False) -> Demo:
     global _demo
     if _demo is None:
-        _demo = Demo()
+        _demo = Demo(real_db)
         _demo.install()
     return _demo

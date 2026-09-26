@@ -33,7 +33,7 @@ nav a .badge { position: absolute; top: 2px; right: 0; width: 7px; height: 7px; 
 .grow { flex: 1; }
 .stats { font: 12px var(--mono); color: var(--muted); display: flex; gap: 16px; white-space: nowrap; }
 .stats b { color: var(--ink); font-weight: 600; }
-.demo-tag { font: 11px var(--mono); color: var(--muted); border: 1px dashed var(--input); border-radius: 999px; padding: 3px 9px; }
+.demo-tag { white-space: nowrap; font: 11px var(--mono); color: var(--muted); border: 1px dashed var(--input); border-radius: 999px; padding: 3px 9px; }
 .btn { padding: 8px 14px; border: 1px solid var(--input); border-radius: 6px; background: var(--panel); font-size: 13px; cursor: pointer; white-space: nowrap; }
 .btn:hover:not(:disabled) { border-color: var(--faint); }
 .btn.dark { background: var(--dark); border-color: var(--dark); color: #fff; }
@@ -150,7 +150,9 @@ table.rows td.n, table.rows th.n { text-align: right; }
 .race .big { width: 180px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .race .big .n { font: 600 30px var(--mono); letter-spacing: -.02em; }
 .race .big .d { font-size: 12px; color: var(--green-ink); font-weight: 600; }
-.race svg { flex: 1; min-width: 0; height: 100%; }
+.strip > .card { min-height: 0; overflow: hidden; }
+.race > div:not(.big) { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.race svg { flex: 1; min-width: 0; min-height: 0; height: auto; display: block; }  /* fill the strip; never size from the viewBox (it grew on wide screens) */
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 11px var(--mono); color: var(--muted); }
 .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
 .feed { background: var(--dark); color: #E8EAED; border-radius: var(--r); padding: 12px 16px; display: flex; flex-direction: column; gap: 5px; font: 11.5px var(--mono); overflow: hidden; }
@@ -233,7 +235,26 @@ table.sk td.mono { font-size: 12px; }
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--dark); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 20; }
 
+/* laptop widths (~1180-1400px, e.g. 1240px at 100% zoom): keep three columns, just tighter */
+@media (max-width: 1400px) {
+  .top { gap: 10px; padding: 0 16px; }
+  nav a { padding: 6px 8px; }
+  .top .btn { padding: 8px 11px; }
+  .stats { gap: 0 10px; min-width: 0; overflow: hidden; flex-wrap: wrap; height: 18px; line-height: 18px; justify-content: flex-end; }  /* items that don't fit wrap out of view whole */
+  .live-grid { grid-template-columns: 236px minmax(0, 1fr) 280px; }
+  .col-mid { padding: 14px 14px 12px; gap: 12px; }
+  .col-right { padding: 16px 16px; }
+  .canvas { padding: 12px 12px; gap: 12px; }
+  .flow { width: 200px; }
+  .colls { gap: 6px; }
+  .coll { padding: 7px 8px; }
+  .trow { grid-template-columns: 50px minmax(110px, 180px) minmax(0, 1fr) 54px 64px; padding: 7px 10px; gap: 6px; }
+  .strip { grid-template-columns: minmax(0, 1fr) 300px; padding: 0 14px 12px; }
+}
 @media (max-width: 1180px) {
+  .stats { display: none; }
+}
+@media (max-width: 1040px) {
   .live-grid { grid-template-columns: 250px minmax(0, 1fr); }
   .col-right { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
   .stats { display: none; }
@@ -246,6 +267,7 @@ table.sk td.mono { font-size: 12px; }
   .col-left, .col-mid, .col-right { min-width: 0; }
   .chip { max-width: 100%; }
   .strip { height: auto; padding: 0 16px 16px; }
+  .race svg { flex: none; height: 140px; }
   .col-left { border-right: 0; }
   .qlist { max-height: 260px; }
   .canvas { flex-direction: column; }

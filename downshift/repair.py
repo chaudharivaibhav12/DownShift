@@ -10,7 +10,7 @@ Flow (handle_schema_change):
 """
 from datetime import datetime, timezone
 
-from bson import json_util
+from bson import Decimal128, json_util
 
 from . import config, gate, ledger, llm, nl2mql, prompts, schema, skills
 
@@ -39,7 +39,8 @@ def _label(canonical: list[str] | None) -> str:
     try:
         row = json_util.loads(sorted(canonical)[0])
         name = next((str(v) for v in row.values() if isinstance(v, str)), "")
-        n = next((v for v in row.values() if isinstance(v, (int, float)) and not isinstance(v, bool)), None)
+        nums = [float(v.to_decimal()) if isinstance(v, Decimal128) else v for v in row.values()]
+        n = next((v for v in nums if isinstance(v, (int, float)) and not isinstance(v, bool)), None)
         val = "" if n is None else (f"{n:,.0f}" if abs(n) >= 100 else f"{n:.2f}")
         more = f" +{len(canonical) - 1}" if len(canonical) > 1 else ""
         return (f"{name} {val}".strip() or "?") + more
@@ -62,7 +63,7 @@ def repair_skill(adb, data, skill: dict, snap: dict, model: str | None = None) -
         out["error"] = f"llm: {res.error}"
         return out
     try:
-        obj = json_util.loads(llm.extract_json_text(res.text))
+        obj = skills.loads_model_json(llm.extract_json_text(res.text))
         template = obj["template"]
         nl2mql.check_safe(template)
         missing = set(skill["params"]) - skills.placeholders(template)

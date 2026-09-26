@@ -2,6 +2,7 @@
 
 Run:   uvicorn server.app:app --port 8000            (real Atlas + OpenRouter, after scripts.setup_db / build_benchmark)
        DOWNSHIFT_DEMO=1 uvicorn server.app:app --port 8000   (fully offline demo)
+       DOWNSHIFT_MODELS=standin uvicorn server.app:app --port 8000   (real Atlas + scripted stand-in models)
 Open:  http://localhost:8000
 """
 import asyncio
@@ -12,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bson import ObjectId, json_util
+from bson import Decimal128, ObjectId, json_util
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,10 +23,12 @@ from downshift import config, db, ledger, repair, schema, skills, trace
 from downshift.answer import answer
 
 DEMO = os.environ.get("DOWNSHIFT_DEMO") == "1"
+STANDIN = not DEMO and os.environ.get("DOWNSHIFT_MODELS", "").lower() == "standin"
+MODE = "demo" if DEMO else "standin" if STANDIN else "live"
 demo = None
-if DEMO:
+if DEMO or STANDIN:
     from downshift import demo as demo_mod
-    demo = demo_mod.install()
+    demo = demo_mod.install(real_db=STANDIN)
 
 app = FastAPI(title="Downshift")
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -41,9 +44,23 @@ def _data():
     return db.data_coll(db.client())
 
 
+def _plain(x):
+    """Decimal128 (Atlas stores sample_supplies prices this way) -> float, recursively. Also fixes answers that were
+    stored earlier with {"$numberDecimal": "..."} wrappers."""
+    if isinstance(x, Decimal128):
+        return float(x.to_decimal())
+    if isinstance(x, dict):
+        if len(x) == 1 and "$numberDecimal" in x:
+            return float(x["$numberDecimal"])
+        return {k: _plain(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_plain(v) for v in x]
+    return x
+
+
 def _clean(doc):
     """Mongo document -> JSON-safe dict."""
-    return json.loads(json_util.dumps(doc, json_options=json_util.RELAXED_JSON_OPTIONS))
+    return json.loads(json_util.dumps(_plain(doc), json_options=json_util.RELAXED_JSON_OPTIONS))
 
 
 def _schema_text():
@@ -144,8 +161,8 @@ def schema_change(body: SchemaIn):
 
 @app.post("/api/reset")
 def reset():
-    if not DEMO:
-        raise HTTPException(400, "Reset is only available in demo mode.")
+    if demo is None:
+        raise HTTPException(400, "Reset is only available in demo or stand-in mode.")
     if JOB["name"]:
         raise HTTPException(409, "Wait for the running operation to finish.")
     with ENGINE:
@@ -184,7 +201,8 @@ def state():
     for sk in all_skills:
         sk["uses"] = uses.get(f"{sk['skillId']}@v{sk['version']}", 0)
     return _clean({
-        "demo": DEMO,
+        "demo": demo is not None,
+        "mode": MODE,
         "job": dict(JOB),
         "stats": {
             "answers": len(answers),
@@ -195,7 +213,7 @@ def state():
             "frontierPerAnswer": round(frontier_q, 6),
             "paths": {p: sum(1 for a in answers if a["path"] == p) for p in ("cheap", "mid", "learn", "frontier")},
         },
-        "counts": {"sales": _data().estimated_document_count(), "ledger": adb.ledger.estimated_document_count(),
+        "counts": {"sales": _data().estimated_document_count(), "ledger": adb.ledger.count_documents({}),
                    "events": adb.events.estimated_document_count(), "skills": len(all_skills)},
         "race": [{"n": i + 1, "cost": a["cost"], "path": a["path"]} for i, a in enumerate(answers)],
         "answers": answers[-40:][::-1],

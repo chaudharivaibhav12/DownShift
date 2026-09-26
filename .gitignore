@@ -2,3 +2,4 @@
 .venv/
 __pycache__/
 results/
+_tmp_stage/
