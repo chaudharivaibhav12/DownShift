@@ -4,17 +4,17 @@
 
   const PATH = {
     cheap: { c: "#00A35C", label: "CHEAP", tier: "cheap", name: "cheap model" },
-    mid: { c: "#D89B00", label: "MID", tier: "mid", name: "mid model" },
+    mid: { c: "#8A6200", label: "MID", tier: "mid", name: "mid model" },
     learn: { c: "#3B5BDB", label: "LEARN", tier: "frontier", name: "frontier model, learned" },
     frontier: { c: "#151719", label: "FRONTIER", tier: "frontier", name: "frontier model" },
   };
   const KIND = {
-    search: { k: "SKILL SEARCH", c: "#8A9099" },
+    search: { k: "SKILL SEARCH", c: "#5F6670" },
     cheap: { k: "CHEAP MODEL", c: "#00A35C" },
-    mid: { k: "MID MODEL", c: "#D89B00" },
+    mid: { k: "MID MODEL", c: "#8A6200" },
     frontier: { k: "FRONTIER MODEL", c: "#3B5BDB" },
     db: { k: "ATLAS", c: "#00684A" },
-    check: { k: "CHECK", c: "#8A9099" },
+    check: { k: "CHECK", c: "#5F6670" },
     gate: { k: "PROMOTION GATE", c: "#3B5BDB" },
   };
 
@@ -39,6 +39,7 @@
   let repairSel = null;
   let seenEvents = new Set();
   let firstFeed = true;
+  let pendingSince = 0, pendingTimer = null, pendingSeen = new Set();
   const full = new Map();       // answer id -> full answer (with rows)
 
   // ------------------------------------------------------------------ data
@@ -70,12 +71,31 @@
     es.onerror = () => $("liveDot").classList.add("off");
   }
 
+  function say(msg) {
+    $("sr").textContent = msg;
+  }
+
   function toast(msg) {
     const t = $("toast");
     t.textContent = msg;
+    say(msg);
     t.hidden = false;
     clearTimeout(toast.t);
     toast.t = setTimeout(() => (t.hidden = true), 3200);
+  }
+
+  /* Panels were slicing content off mid-card with nothing to say there was more. */
+  const scrollUpdaters = [];
+  function wireScrollFade(id) {
+    const el = $(id);
+    if (!el) return;
+    const upd = () => {
+      el.classList.toggle("more-up", el.scrollTop > 2);
+      el.classList.toggle("more-down", el.scrollTop + el.clientHeight < el.scrollHeight - 2);
+    };
+    el.addEventListener("scroll", upd, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(upd).observe(el);
+    scrollUpdaters.push(upd);
   }
 
   // ------------------------------------------------------------------ routing
@@ -128,7 +148,7 @@
     }
     for (const a of list) {
       const id = oid(a._id);
-      const p = PATH[a.path] || { c: "#D94A4A", label: "FAILED" };
+      const p = PATH[a.path] || { c: "#C0392B", label: "FAILED" };
       const on = !pending && id === selected;
       html += `<button type="button" class="q${on ? " on" : ""}" data-id="${id}" style="--c:${p.c}">
         <span class="t">${esc(a.question)}</span>
@@ -159,23 +179,49 @@
     ask(b.title);
   });
 
+  /* A learn can take 45 s. Without this the screen is frozen and people assume it crashed.
+     Only real signals are shown: elapsed time, and events that actually arrived since the ask. */
+  function pendingTick() {
+    if (!pending) return;
+    const el = (Date.now() - pendingSince) / 1000;
+    $("vCost").textContent = el.toFixed(1) + "s";
+    const fresh = S.events.filter((e) => !pendingSeen.has(oid(e._id)));
+    const latest = fresh.length ? eventLine(fresh[0])[1] : null;
+    $("vMeta").textContent = latest || (el < 3 ? "Searching live skills…" : "Waiting on the model…");
+    const row = document.querySelector(".q.pending .m");
+    if (row) row.innerHTML = `<span class="dot"></span>running… ${el.toFixed(1)}s`;
+  }
+
   async function ask(q) {
     q = (q || "").trim();
     if (!q || pending) return;
     $("askErr").hidden = true;
     pending = q;
+    pendingSince = Date.now();
+    pendingSeen = new Set(S.events.map((e) => oid(e._id)));
     follow = true;
     render();
+    $("vLine").textContent = "Working on it\u2026";
+    $("vVs").textContent = "elapsed";
+    $("flow").innerHTML = `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+    clearInterval(pendingTimer);
+    pendingTimer = setInterval(pendingTick, 100);
+    pendingTick();
     try {
       const a = await api("/api/ask", { method: "POST", body: JSON.stringify({ question: q }) });
       full.set(oid(a._id), a);
       selected = oid(a._id);
       $("askInput").value = "";
+      const p = PATH[a.path];
+      say(`Answered by the ${p ? p.name : a.path} path, ${a.rowCount} row${a.rowCount === 1 ? "" : "s"}, ${usd(a.cost)}, ${secs(a.ms)}.`);
     } catch (e) {
-      $("askErr").textContent = e.message;
       $("askErr").hidden = false;
+      $("askErr").textContent = e.message;
     } finally {
       pending = null;
+      clearInterval(pendingTimer);
+      pendingTimer = null;
+      renderedKey = null;   // the pending render short-circuited; force a full redraw
       await refresh();
     }
   }
@@ -204,7 +250,7 @@
     return t;
   }
 
-  function renderPath(a) {
+  function renderVerdict(a) {
     const stops = document.querySelectorAll("#rail .stop");
     const track = $("track");
     stops.forEach((s) => {
@@ -214,7 +260,12 @@
     });
     if (!a || !PATH[a.path]) {
       track.hidden = true;
-      $("pathNote").textContent = a ? "no answer" : "ask a question to start";
+      $("vLine").textContent = a ? "No answer" : "Ask a question to start";
+      $("vMeta").textContent = a
+        ? "Every path failed for this question."
+        : "The first question of a kind is learned by the frontier model; the ones after it go to the cheap model.";
+      $("vCost").textContent = "—";
+      $("vVs").textContent = "";
       return;
     }
     const p = PATH[a.path];
@@ -238,7 +289,23 @@
       track.style.right = ["calc(100% - 60px)", "50%", "60px"][right];
     } else track.hidden = true;
     const model = (a.steps || []).filter((s) => s.model && s.ok).map((s) => s.model).pop();
-    $("pathNote").textContent = `${p.name}${model ? " (" + model + ")" : ""} · ${secs(a.ms)} · ${usd(a.cost)}`;
+    const [title] = why(a);
+    $("vLine").textContent = title;
+    $("vMeta").innerHTML =
+      `<span class="tier" style="--c:${p.c}">${esc(p.name)}</span>${model ? " · " + esc(model) : ""} · ${secs(a.ms)}`;
+    $("vCost").textContent = usd(a.cost);
+    $("vVs").innerHTML = vsFrontier(a);
+  }
+
+  /* The one comparison the whole project exists to make. Kept in one place so the
+     verdict and the inspector can never disagree about it. */
+  function vsFrontier(a) {
+    const fpa = S.stats.frontierPerAnswer;
+    if (!fpa) return "no frontier baseline yet";
+    if (a.cost > 0 && (a.path === "cheap" || a.path === "mid")) return `<span class="good">${Math.round(fpa / a.cost)}× cheaper than frontier</span>`;
+    if (a.path === "learn") return `+${usd(Math.max(0, a.cost - fpa))} one-time, reused from here`;
+    if (a.path === "frontier") return "same as frontier-only";
+    return "—";
   }
 
   function nodeDetail(s) {
@@ -258,10 +325,10 @@
       const sub = [s.ms ? secs(s.ms) : null, s.cost ? usd(s.cost) : null, s.detail && s.kind !== "db" ? s.detail : null].filter(Boolean).join(" · ");
       return `<div class="node-wrap" style="animation-delay:${i * 60}ms">
         <div class="node${s.ok ? "" : " bad"}" style="--c:${c}"><span class="k">${esc(k.k)}${s.ok ? "" : " · FAILED"}</span><span class="v">${esc(nodeDetail(s))}</span>${sub ? `<span class="s">${esc(sub)}</span>` : ""}</div>
-        <span class="arrow" style="--c:${s.ok ? c : "#D94A4A"}"></span></div>`;
+        <span class="arrow" style="--c:${s.ok ? c : "#C0392B"}"></span></div>`;
     });
     const p = PATH[a.path];
-    parts.push(`<div class="node-wrap" style="animation-delay:${steps.length * 60}ms"><div class="node" style="--c:${p ? p.c : "#D94A4A"}"><span class="k">ANSWER</span><span class="v">${a.rowCount} row${a.rowCount === 1 ? "" : "s"}</span></div></div>`);
+    parts.push(`<div class="node-wrap" style="animation-delay:${steps.length * 60}ms"><div class="node" style="--c:${p ? p.c : "#C0392B"}"><span class="k">ANSWER</span><span class="v">${a.rowCount} row${a.rowCount === 1 ? "" : "s"}</span></div></div>`);
     $("flow").innerHTML = parts.join("");
   }
 
@@ -291,11 +358,11 @@
     }
     const steps = a.steps || [];
     const total = Math.max(a.ms || 1, ...steps.map((s) => s.startMs + s.ms), 1);
-    $("traceTitle").textContent = "Trace · " + (PATH[a.path]?.label || "failed").toLowerCase();
-    $("traceTotal").textContent = `${secs(a.ms)} · ${usd(a.cost)}`;
+    $("traceTitle").textContent = "Trace";
+    $("traceTotal").textContent = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
     $("trace").innerHTML = steps.map((s) => {
-      const k = KIND[s.kind] || { c: "#8A9099" };
-      const c = s.ok ? k.c : "#D94A4A";
+      const k = KIND[s.kind] || { c: "#5F6670" };
+      const c = s.ok ? k.c : "#C0392B";
       const left = (s.startMs / total) * 100, width = (s.ms / total) * 100;
       return `<div class="trow${s.ok ? "" : " bad"}"><span class="tm">+${(s.startMs / 1000).toFixed(2)}s</span>
         <span class="nm" title="${esc(s.name + (s.detail ? " — " + s.detail : ""))}">${esc(s.name)}</span>
@@ -339,16 +406,12 @@
   function renderInspector(a) {
     const el = $("inspector");
     if (!a) {
-      el.innerHTML = `<span class="label">Inspector</span><div class="why">Why this path?</div><div class="why-t">Pick a question to see why Downshift answered it the way it did, what it cost, and what a frontier-only system would have paid.</div>`;
+      el.innerHTML = `<span class="label">Why this path</span><div class="why-t">Pick a question to see why Downshift answered it the way it did, what it cost, and what a frontier-only system would have paid.</div>`;
       return;
     }
-    const p = PATH[a.path] || { c: "#D94A4A", label: "FAILED" };
-    const [title, text] = why(a);
+    const [, text] = why(a);
     const fpa = S.stats.frontierPerAnswer;
-    let vs = "—";
-    if (a.cost > 0 && (a.path === "cheap" || a.path === "mid")) vs = `<span class="good">${Math.round(fpa / a.cost)}× cheaper</span>`;
-    else if (a.path === "learn") vs = `+${usd(Math.max(0, a.cost - fpa))} one-time`;
-    else if (a.path === "frontier") vs = "same";
+    const vs = vsFrontier(a);
     const model = (a.steps || []).filter((s) => s.model && s.ok).map((s) => s.model).pop();
     const params = a.params && Object.keys(a.params).length
       ? `<div class="params">${Object.entries(a.params).map(([k, v]) => `<span class="k">${esc(k)}</span> = ${esc(v)}`).join("<br>")}</div>` : "";
@@ -360,9 +423,8 @@
         a.rows.slice(0, 6).map((r) => `<tr>${cols.map((c) => `<td class="${isNum(c) ? "n" : ""}">${esc(typeof r[c] === "object" ? JSON.stringify(r[c]) : num(r[c]))}</td>`).join("")}</tr>`).join("") +
         `</tbody></table>${a.rowCount > 6 ? `<span class="muted" style="font-size:12px">+${a.rowCount - 6} more</span>` : ""}`;
     } else rows = `<span class="muted" style="font-size:13px">${a.rows ? "No rows." : "Loading…"}</span>`;
-    el.innerHTML = `<span class="label">Inspector</span>
-      <span class="pill" style="--c:${p.c}"><span class="dot"></span>${p.label}</span>
-      <div class="why">${title}</div><div class="why-t">${text}</div>${params}
+    el.innerHTML = `<span class="label">Why this path</span>
+      <div class="why-t">${text}</div>${params}
       <div class="facts">
         <div class="fact"><span>Skill</span><span>${esc(a.skill ? a.skill.split(" ")[0] : "—")}</span></div>
         <div class="fact"><span>Model</span><span>${esc(model || "—")}</span></div>
@@ -383,7 +445,7 @@
     renderedKey = key;
     if (pending) return;
     const a = summary ? { ...summary, ...(full.get(selected) || {}) } : null;
-    renderPath(a);
+    renderVerdict(a);
     if (newAnswer) renderFlow(a);
     renderAtlas(a);
     renderTrace(a);
@@ -406,7 +468,7 @@
     $("cpaDelta").textContent = cpa == null ? "" : cpa < fpa ? `${Math.round((1 - cpa / fpa) * 100)}% below frontier-only` : "learning: at or above frontier-only";
     $("cpaDelta").style.color = cpa != null && cpa < fpa ? "#00684A" : "#8A6200";
     if (!race.length) {
-      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="12" fill="#8A9099" font-family="Geist Mono">cumulative cost appears after the first answer</text>`;
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="12" fill="#5F6670" font-family="Geist Mono">cumulative cost appears after the first answer</text>`;
       return;
     }
     const N = Math.max(race.length, 10);
@@ -419,7 +481,7 @@
     const last = pts[pts.length - 1];
     const fEnd = last.n * fpa;
     const down = `${x(0)},${y(0)} ` + pts.map((p) => `${x(p.n).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
-    const dots = pts.map((p) => `<circle cx="${x(p.n).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.6" fill="${(PATH[p.path] || { c: "#D94A4A" }).c}"><title>q${p.n} · ${p.path}</title></circle>`).join("");
+    const dots = pts.map((p) => `<circle cx="${x(p.n).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.6" fill="${(PATH[p.path] || { c: "#C0392B" }).c}"><title>q${p.n} · ${p.path}</title></circle>`).join("");
     svg.innerHTML = `
       <line x1="${padL}" y1="${y(0)}" x2="${W - padR}" y2="${y(0)}" stroke="#E4E7EB"/>
       <line x1="${x(0)}" y1="${y(0)}" x2="${x(last.n)}" y2="${y(fEnd)}" stroke="#8A9099" stroke-width="1.5" stroke-dasharray="5 5"/>
@@ -428,8 +490,8 @@
       ${dots}
       <circle cx="${x(last.n)}" cy="${y(last.v)}" r="5" fill="#00ED64" stroke="#fff" stroke-width="2"/>
       <text x="${x(last.n) + 6}" y="${Math.min(H - padB, y(last.v) + 4)}" font-size="11" font-weight="600" fill="#00684A" font-family="Geist Mono">${usd(last.v, 2)}</text>
-      <text x="${padL}" y="${H - 2}" font-size="10" fill="#8A9099" font-family="Geist Mono">q1</text>
-      <text x="${x(last.n)}" y="${H - 2}" font-size="10" fill="#8A9099" font-family="Geist Mono" text-anchor="middle">q${last.n}</text>`;
+      <text x="${padL}" y="${H - 2}" font-size="10" fill="#5F6670" font-family="Geist Mono">q1</text>
+      ${last.n > 1 ? `<text x="${x(last.n)}" y="${H - 2}" font-size="10" fill="#5F6670" font-family="Geist Mono" text-anchor="middle">q${last.n}</text>` : ""}`;
   }
 
   function eventLine(e) {
@@ -513,7 +575,7 @@
     const changed = (r.changed || []).join(" ↔ ");
 
     // banner
-    let cls = "run", c = "#D89B00", title, sub;
+    let cls = "run", c = "#8A6200", title, sub;
     if (!done) {
       title = `Schema v${r.schemaVersion}: ${changed}`;
       sub = r.stage === "repairing" ? `Repairing ${Math.min(results.length + 1, flagged.length)} of ${flagged.length} flagged skills. Flagged skills are off the cheap path; the frontier answers those questions meanwhile.` :
@@ -524,7 +586,7 @@
       cls = "ok"; c = "#00A35C"; title = `${flagged.length} skill${flagged.length === 1 ? "" : "s"} repaired, answers identical`;
       sub = `${eqSame}/${eqTotal} test answers match the old skills exactly · repair cost ${usd(cost)} · back on the cheap path`;
     } else {
-      cls = "bad"; c = "#D94A4A"; title = `${results.filter((x) => !x.ok).length} of ${flagged.length} repairs did not ship`;
+      cls = "bad"; c = "#C0392B"; title = `${results.filter((x) => !x.ok).length} of ${flagged.length} repairs did not ship`;
       sub = "Those skills stay retired from the cheap path; the frontier keeps answering them.";
     }
 
@@ -622,6 +684,7 @@
 
   // ------------------------------------------------------------------ render + actions
   function render() {
+    queueMicrotask(() => scrollUpdaters.forEach((f) => f()));
     if (!S) return;
     renderHeader();
     const v = view();
@@ -671,6 +734,7 @@
   });
   window.addEventListener("resize", () => S && view() === "live" && renderRace());
 
+  ["qlist", "inspector", "trace"].forEach(wireScrollFade);
   showView();
   refresh();
   connect();
