@@ -4,3 +4,5 @@ __pycache__/
 results/
 _tmp_stage/
 experiments/
+console/node_modules/
+web/dist/
