@@ -22,6 +22,10 @@ MODELS = {
     "auto": os.environ.get("AUTO_MODEL", "openrouter/auto"),
 }
 
+# OpenRouter provider routing for our named models: "latency" | "throughput" | "price" | "" (OpenRouter default).
+# Not applied to openrouter/* routers (auto picks its own). Measure with: python -m scripts.bench_latency
+PROVIDER_SORT = os.environ.get("PROVIDER_SORT", "").strip()
+
 DATA_DB = os.environ.get("DATA_DB", "sample_supplies")
 DATA_COLLECTION = os.environ.get("DATA_COLLECTION", "sales")
 APP_DB = os.environ.get("APP_DB", "downshift")

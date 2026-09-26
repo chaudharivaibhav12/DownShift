@@ -31,7 +31,16 @@ def _client() -> OpenAI:
     )
 
 
-def chat(model: str, system: str, user: str, max_tokens: int = 1500, retries: int = 2) -> LLMResult:
+def _extra_body(model: str, sort: str | None) -> dict:
+    body = {"usage": {"include": True}}
+    sort = config.PROVIDER_SORT if sort is None else sort
+    if sort and not model.startswith("openrouter/") and not model.endswith(":nitro"):
+        body["provider"] = {"sort": sort}
+    return body
+
+
+def chat(model: str, system: str, user: str, max_tokens: int = 1500, retries: int = 2,
+         provider_sort: str | None = None) -> LLMResult:
     """One chat completion. Never raises for API errors: returns LLMResult with .error set."""
     last_err = None
     for attempt in range(retries + 1):
@@ -42,7 +51,7 @@ def chat(model: str, system: str, user: str, max_tokens: int = 1500, retries: in
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0,
                 max_tokens=max_tokens,
-                extra_body={"usage": {"include": True}},
+                extra_body=_extra_body(model, provider_sort),
             )
             latency = int((time.perf_counter() - t0) * 1000)
             usage = resp.usage
