@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Downshift · Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/flow.css">
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three/three.module.min.js", "three/addons/": "/static/vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="stage" aria-label="Live 3D view of questions flowing through Downshift"></div>
+
+<header class="hud top">
+  <a class="brand" href="/">DOWNSHIFT</a>
+  <span class="live" id="live"><i></i>LIVE</span>
+  <nav><a href="/#live">Live</a><a href="/#repairs">Repairs</a><a href="/#skills">Skills</a><a class="on" href="/flow">Flow</a></nav>
+  <span class="grow"></span>
+  <span class="tag" id="demoTag" hidden>offline demo</span>
+  <button class="btn ghost" id="orbitBtn" aria-pressed="true" title="Slow camera orbit">Orbit</button>
+  <button class="btn ghost" id="fullBtn" title="Full screen (F)">Full screen</button>
+  <button class="btn ghost" id="resetBtn" hidden>Reset</button>
+  <button class="btn" id="replayBtn">Replay 30 questions</button>
+  <button class="btn primary" id="schemaBtn">Simulate schema change</button>
+</header>
+
+<section class="hud meter" aria-live="polite">
+  <div class="k">Spent so far</div>
+  <div class="row"><span class="lbl">Frontier only</span><span class="bar"><i id="barF"></i></span><b id="costF">$0.00</b></div>
+  <div class="row"><span class="lbl">Downshift</span><span class="bar"><i id="barD" class="g"></i></span><b id="costD">$0.00</b></div>
+  <div class="save" id="save">ask a question to start</div>
+  <div class="paths" id="paths"></div>
+</section>
+
+<section class="hud legend">
+  <div><i style="--c:#4C6EF5"></i>frontier · learns a skill</div>
+  <div><i style="--c:#F2B01E"></i>mid · escalation</div>
+  <div><i style="--c:#00ED64"></i>cheap · reuses a skill</div>
+  <div><i style="--c:#FF5C5C"></i>broken by schema change</div>
+</section>
+
+<section class="hud ticker" id="ticker" aria-live="polite"></section>
+
+<form class="hud ask" id="askForm" autocomplete="off">
+  <input id="askInput" placeholder="Ask a question… e.g. top 3 stores by revenue in 2016" aria-label="Ask a question">
+  <button class="btn primary" id="askBtn">Ask</button>
+</form>
+
+<div class="nogl" id="nogl" hidden>This view needs WebGL. The <a href="/">console</a> shows the same data.</div>
+<script type="module" src="/static/flow.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _req(name: str) -> str:
+    val = os.environ.get(name)
+    if not val:
+        raise SystemExit(f"Missing environment variable {name}. Copy .env.example to .env and fill it in.")
+    return val
+
+
+MONGODB_URI = os.environ.get("MONGODB_URI", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+MODELS = {
+    "cheap": os.environ.get("CHEAP_MODEL", "meta-llama/llama-3.1-8b-instruct"),
+    "mid": os.environ.get("MID_MODEL", "openai/gpt-4o-mini"),
+    "frontier": os.environ.get("FRONTIER_MODEL", "anthropic/claude-sonnet-4"),
+    "auto": os.environ.get("AUTO_MODEL", "openrouter/auto"),
+}
+
+DATA_DB = os.environ.get("DATA_DB", "sample_supplies")
+DATA_COLLECTION = os.environ.get("DATA_COLLECTION", "sales")
+APP_DB = os.environ.get("APP_DB", "downshift")
+
+# Share of a skill's test questions the cheap model must get right for the skill to go live
+GATE_PASS_RATE = float(os.environ.get("GATE_PASS_RATE", "0.85"))
+
+# Query safety limits
+MAX_TIME_MS = 15_000
+MAX_RESULT_ROWS = 200

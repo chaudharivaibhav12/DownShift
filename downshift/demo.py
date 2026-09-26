@@ -1,0 +1,177 @@
+"""Demo mode: run Downshift fully offline with an in-memory database and a scripted stand-in model.
+
+Turn on with DOWNSHIFT_DEMO=1. Everything else (answer loop, gate, repair, ledger, console) is the real code;
+only MongoDB (mongomock) and the model calls (scripted) are stand-ins. Free-form questions are mapped to the
+closest benchmark question, so the demo only knows the three question families.
+"""
+import random
+import re
+import threading
+import time
+
+from bson import json_util
+
+from . import benchmark, config, db, llm, nl2mql, schema
+from .demo_data import make_data
+
+LATENCY = {"cheap": 0.25, "mid": 0.5, "frontier": 0.9, "auto": 0.6}
+COST = {"frontier": 0.02, "mid": 0.002, "cheap": 0.0002, "auto": 0.01}
+SLIP_EVERY = 9  # every 9th cheap fill forgets a param, so escalation to mid shows up in a replay
+
+TEMPLATES = {
+    "top_stores_by_revenue": ([
+        {"$match": {"saleDate": {"$gte": "{{start}}", "$lt": "{{end}}"}}}, {"$unwind": "$items"},
+        {"$group": {"_id": "$storeLocation", "revenue": {"$sum": {"$multiply": ["$items.price", "$items.quantity"]}}}},
+        {"$sort": {"revenue": -1, "_id": 1}}, {"$limit": "{{limit}}"}],
+        {"start": {"type": "date", "description": "first day, inclusive"},
+         "end": {"type": "date", "description": "day after the period, exclusive"},
+         "limit": {"type": "int", "description": "how many stores", "min": 1, "max": 50}}),
+    "top_items_by_tag_in_store": ([
+        {"$match": {"storeLocation": "{{store}}"}}, {"$unwind": "$items"}, {"$match": {"items.tags": "{{tag}}"}},
+        {"$group": {"_id": "$items.name", "units": {"$sum": "$items.quantity"}}}, {"$sort": {"units": -1, "_id": 1}},
+        {"$limit": "{{limit}}"}],
+        {"store": {"type": "string", "description": "store location"},
+         "tag": {"type": "string", "description": "item tag"},
+         "limit": {"type": "int", "description": "how many items"}}),
+    "coupon_rate_by_purchase_method": ([
+        {"$match": {"saleDate": {"$gte": "{{start}}", "$lt": "{{end}}"}, "storeLocation": "{{store}}"}},
+        {"$group": {"_id": "$purchaseMethod", "rate": {"$avg": {"$cond": ["$couponUsed", 1, 0]}}}},
+        {"$sort": {"_id": 1}}],
+        {"start": {"type": "date", "description": "Jan 1 of the year, inclusive"},
+         "end": {"type": "date", "description": "Jan 1 of next year, exclusive"},
+         "store": {"type": "string", "optional": True, "description": "store location; omit for all stores"}}),
+}
+STORE_FIELDS = ("storeLocation", "store_location")
+
+
+class Demo:
+    def __init__(self):
+        import mongomock
+        self.client = mongomock.MongoClient()
+        self.lock = threading.RLock()
+        self.rng = random.Random(7)
+        self.reg: dict[str, tuple[str, dict]] = {}
+        self.cases: list[dict] = []
+        self.fills = 0
+
+    # --------------------------------------------------------------- setup
+    def install(self):
+        db.client = lambda: self.client
+        llm.chat = self.chat
+        nl2mql.llm.chat = self.chat
+        self.reset()
+
+    def reset(self):
+        for name in self.client.list_database_names():
+            self.client.drop_database(name)
+        data, adb = db.data_coll(self.client), db.app_db(self.client)
+        make_data(data)
+        for name in ("skills", "test_cases", "schema_registry", "events", "runs", "ledger", "repairs", "answers"):
+            adb.create_collection(name)
+        schema.snapshot(adb.schema_registry, data, config.DATA_COLLECTION)
+        self.cases = benchmark.build_cases(data)
+        adb.test_cases.insert_many([dict(x) for x in self.cases])
+        self.fills = 0
+        self.reg = {c["question"]: (c["family"], dict(c["params"])) for c in self.cases}
+        self.ctx = benchmark.data_context(data)
+
+    # --------------------------------------------------------------- helpers
+    def resolve(self, question: str):
+        """Exact benchmark question, else the closest one by word overlap (demo only)."""
+        if question in self.reg:
+            return self.reg[question]
+        words = set(re.findall(r"[a-z0-9]+", question.lower()))
+
+        def score(q):  # shared words, numbers (years, limits) count triple
+            common = words & set(re.findall(r"[a-z0-9]+", q.lower()))
+            return sum(3 if w.isdigit() else 1 for w in common)
+        best = max(self.reg, key=score)
+        return self.reg[best]
+
+    @staticmethod
+    def _iso(d):
+        return d.strftime("%Y-%m-%d")
+
+    def skill_params(self, fam, p):
+        if fam == "top_stores_by_revenue":
+            return {"start": self._iso(p["start"]), "end": self._iso(p["end"]), "limit": p["limit"]}
+        if fam == "top_items_by_tag_in_store":
+            return {"store": p["store"], "tag": p["tag"], "limit": p["limit"]}
+        out = {"start": f"{p['year']}-01-01", "end": f"{p['year'] + 1}-01-01"}
+        if p.get("store"):
+            out["store"] = p["store"]
+        return out
+
+    @staticmethod
+    def _to_field(text: str, field: str) -> str:
+        for f in STORE_FIELDS:
+            text = text.replace(f'"${f}"', f'"${field}"').replace(f'"{f}"', f'"{field}"')
+        return text
+
+    @staticmethod
+    def _current_store_field(schema_text: str) -> str:
+        return "store_location" if re.search(r"^- store_location:", schema_text, re.M) else "storeLocation"
+
+    # --------------------------------------------------------------- the stand-in model
+    def chat(self, model, system, user, max_tokens=1500, retries=2):
+        tier = next((k for k, v in config.MODELS.items() if v == model), "frontier")
+        time.sleep(LATENCY[tier] * (0.8 + 0.4 * self.rng.random()))
+        cost = COST[tier]
+
+        def R(text):
+            return llm.LLMResult(text=text, model=f"demo/{tier}", cost_usd=cost, tokens_in=400, tokens_out=150,
+                                 latency_ms=int(LATENCY[tier] * 1000))
+
+        if "TASK: REPAIR" in user:
+            old = re.search(r"Old template \(Extended JSON.*?\n(.*?)\n\nRewrite", user, re.S).group(1)
+            field = self._current_store_field(user.split("Current schema:")[1])
+            fixed = self._to_field(old, field)
+            return R('{"note": "store field is now ' + field + '", "template": ' + fixed + "}")
+
+        if "TASK: GENERALIZE" in user:
+            q = re.search(r"^Question: (.*)$", user, re.M).group(1)
+            fam, p = self.resolve(q)
+            template, params = TEMPLATES[fam]
+            field = self._current_store_field(user.split("Question:")[0])
+            tests = []
+            for i in range(8):
+                tp = benchmark.FAMILIES[fam]["params"](self.rng, self.ctx, i)
+                if fam == "top_items_by_tag_in_store":
+                    tp["limit"] = 3
+                tq = benchmark.FAMILIES[fam]["templates"][(i + 3) % 10].format(**tp) + f" (test {i + 1})"
+                qp = {k: v for k, v in tp.items() if k not in ("period", "scope")}
+                self.reg[tq] = (fam, qp)
+                tests.append({"question": tq, "params": self.skill_params(fam, qp)})
+            obj = {"skillId": fam, "intent": f"Answer {fam.replace('_', ' ')} questions", "params": params,
+                   "template": template, "originalParams": self.skill_params(fam, p), "testQuestions": tests}
+            return R(self._to_field(json_util.dumps(obj), field))
+
+        if "TASK: SELECT_AND_FILL" in system:
+            fam, p = self.resolve(user)
+            if f"skillId: {fam}" not in system:
+                return R('{"skillId": null}')
+            sp = self.skill_params(fam, p)
+            if tier == "cheap":
+                self.fills += 1
+            if tier == "cheap" and self.fills % SLIP_EVERY == 5:
+                sp = dict(sp)
+                sp.pop(next(iter(sp)))
+            return R(json_util.dumps({"skillId": fam, "params": sp}))
+
+        # concrete pipeline, written against the current schema
+        fam, p = self.resolve(user)
+        pipe = benchmark.FAMILIES[fam]["pipeline"](dict(p))
+        if fam == "top_items_by_tag_in_store":
+            pipe[-1] = {"$limit": p["limit"]}
+        return R(self._to_field(json_util.dumps({"pipeline": pipe}), self._current_store_field(system)))
+
+
+_demo: Demo | None = None
+
+
+def install() -> Demo:
+    global _demo
+    if _demo is None:
+        _demo = Demo()
+        _demo.install()
+    return _demo

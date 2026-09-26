@@ -1,0 +1,6 @@
+pymongo>=4.8
+openai>=1.40
+python-dotenv>=1.0
+fastapi>=0.110
+uvicorn>=0.29
+mongomock>=4.1   # offline demo and tests only
