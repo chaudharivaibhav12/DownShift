@@ -27,7 +27,7 @@
   <button class="btn primary" id="schemaBtn">Simulate schema change</button>
 </header>
 
-<section class="hud meter" aria-live="polite">
+<section class="hud meter">
   <div class="k">Spent so far</div>
   <div class="row"><span class="lbl">Frontier only</span><span class="bar"><i id="barF"></i></span><b id="costF">$0.00</b></div>
   <div class="row"><span class="lbl">Downshift</span><span class="bar"><i id="barD" class="g"></i></span><b id="costD">$0.00</b></div>
@@ -42,7 +42,7 @@
   <div><i style="--c:#FF5C5C"></i>broken by schema change</div>
 </section>
 
-<section class="hud ticker" id="ticker" aria-live="polite"></section>
+<section class="hud ticker" id="ticker" role="status"></section>
 
 <form class="hud ask" id="askForm" autocomplete="off">
   <input id="askInput" placeholder="Ask a question… e.g. top 3 stores by revenue in 2016" aria-label="Ask a question">

@@ -39,6 +39,7 @@
   let repairSel = null;
   let seenEvents = new Set();
   let firstFeed = true;
+  let lastRepairStage = null;
   let pendingSince = 0, pendingTimer = null, pendingSeen = new Set();
   const full = new Map();       // answer id -> full answer (with rows)
 
@@ -556,6 +557,15 @@
   function renderRepairs() {
     const r = S.repair;
     const page = $("repairPage");
+    const stage = r ? `${r.stage}:${(r.results || []).length}` : null;
+    if (stage && stage !== lastRepairStage) {
+      lastRepairStage = stage;
+      const n = (r.flagged || []).length, ok = (r.results || []).filter((x) => x.ok).length;
+      say({ detected: "Schema change detected. Checking which skills are affected.",
+            flagged: `${n} skill${n === 1 ? "" : "s"} flagged for repair.`,
+            repairing: `Repairing skill ${Math.min((r.results || []).length + 1, n)} of ${n}.`,
+            done: `Repairs finished: ${ok} of ${n} shipped.` }[r.stage] || `Repair stage: ${r.stage}.`);
+    }
     if (!r) {
       page.innerHTML = `<div class="card idle"><h2>No repairs yet</h2>
         <p><b>Simulate schema change</b> renames <span class="mono">storeLocation</span> to <span class="mono">store_location</span> in every sales document. The change stream notices, flags every skill that reads that field, and the frontier model repairs each one. A repair ships only if the new template gives identical answers and passes the gate again.</p>
@@ -637,7 +647,7 @@
       detail = (res.templateBefore && res.templateAfter ? diffHTML(res.templateBefore, res.templateAfter) : "") +
         `<div class="card equiv"><div style="font-size:13px;font-weight:600">Answers compared: v${res.from} vs repaired</div>
           <div class="eq h"><span>Test question</span><span>before</span><span>after</span><span></span></div>` +
-        (eq.length ? eq.map((e) => `<div class="eq"><span title="${esc(e.question)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.question)}</span><span class="v" title="${esc(e.before)}">${esc(e.before)}</span><span class="v" title="${esc(e.after)}">${esc(e.after)}</span><span class="${e.same ? "same" : "notsame"}">${e.same ? "SAME" : "DIFF"}</span></div>`).join("") : `<span class="muted" style="font-size:13px">${esc(res.error || "No comparisons ran.")}</span>`) +
+        (eq.length ? eq.map((e) => `<div class="eq"><span class="q">${esc(e.question)}</span><span class="v" title="${esc(e.before)}">${esc(e.before)}</span><span class="v" title="${esc(e.after)}">${esc(e.after)}</span><span class="${e.same ? "same" : "notsame"}">${e.same ? "SAME" : "DIFF"}</span></div>`).join("") : `<span class="muted" style="font-size:13px">${esc(res.error || "No comparisons ran.")}</span>`) +
         `</div><div class="two"><div class="card checks"><div style="font-size:13px;font-weight:600">Checks</div>
           ${chk("Safety: read-only stages", readOnly ? "✓" : "✗", readOnly)}
           ${chk("Same params as before", eq.length ? "✓" : "—", eq.length ? true : null)}

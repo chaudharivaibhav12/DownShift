@@ -209,7 +209,7 @@ table.rows td.n, table.rows th.n { text-align: right; }
 .skc { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; }
 .skc.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .skc .top2 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.skc .nm { font: 500 13px var(--mono); overflow-wrap: anywhere; }
+.skc .nm { font: 500 13px var(--mono); overflow-wrap: break-word; }
 .fchips { display: flex; flex-wrap: wrap; gap: 5px; font: 11.5px var(--mono); }
 .fchips span { padding: 2px 7px; border-radius: 4px; background: var(--line-2); }
 .fchips .gone { background: var(--bad-bg); color: #8A1C12; text-decoration: line-through; }
@@ -222,9 +222,10 @@ table.rows td.n, table.rows th.n { text-align: right; }
 .diff .ln.add { background: #E6F4EC; color: #145C38; }
 .diff .ln:last-child { padding-bottom: 8px; }
 .equiv { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.eq { display: grid; grid-template-columns: minmax(0, 1fr) 170px 170px 56px; gap: 10px; font-size: 12.5px; align-items: center; }
+.eq { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) minmax(120px, 1fr) 56px; gap: 10px; font-size: 12.5px; align-items: start; }
 .eq.h span { color: var(--muted); font-size: 12px; }
-.eq .v { font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eq .v { font: 12px var(--mono); white-space: normal; overflow-wrap: break-word; line-height: 1.4; }
+.eq .q { line-height: 1.4; overflow-wrap: break-word; }
 .same { font: 600 11px var(--mono); color: var(--green-ink); }
 .notsame { font: 600 11px var(--mono); color: var(--bad); }
 .checks { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
@@ -292,7 +293,7 @@ table.sk td.mono { font-size: 12px; }
   .trow { grid-template-columns: 50px minmax(0, 1fr) 56px 64px; }
   .trow .bar { display: none; }
   .steps { grid-template-columns: 1fr; gap: 10px; }
-  .eq { grid-template-columns: minmax(0, 1fr) 90px 90px 50px; }
+  .eq { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 46px; gap: 8px; }
   .page { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
