@@ -5,6 +5,7 @@ Run:  python -m scripts.run_downshift --reset-skills     # start with no skills,
       python -m scripts.run_downshift --split holdout
 """
 import argparse
+import os
 import json
 import uuid
 from collections import Counter, defaultdict
@@ -66,10 +67,10 @@ def main():
     for s in skills.promoted(adb.skills):
         print(skills.card(s))
 
-    out = Path("results")
+    out = Path(os.environ.get("DOWNSHIFT_RESULTS_DIR", "results"))
     out.mkdir(exist_ok=True)
     (out / f"downshift_{batch_id}.json").write_text(json.dumps(records, indent=2, default=str))
-    print(f"\nsaved results/downshift_{batch_id}.json")
+    print(f"\nsaved {out}/downshift_{batch_id}.json")
 
 
 if __name__ == "__main__":

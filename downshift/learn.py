@@ -95,7 +95,10 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
     tests = []
     for t in spec.get("testQuestions") or []:
         try:
-            p, _ = skills.render(draft, t.get("params") or {})
+            p, typed = skills.render(draft, t.get("params") or {})
+            # the answer key comes from the frontier's params: hold them to the same rules as the cheap model's
+            skills.check_grounded(draft["params"], typed, t["question"])
+            skills.check_dates(draft["params"], typed, t["question"])
             r, _ = nl2mql.run_pipeline(data, p)
             if r:
                 tests.append({"question": t["question"], "params": t.get("params") or {}, "expected": gate.canonical(r)})

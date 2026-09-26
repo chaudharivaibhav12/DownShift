@@ -4,6 +4,8 @@ The stand-in 'frontier' writes correct pipelines and templates; the 'cheap' mode
 occasional mistakes (to exercise escalation to 'mid'). No network needed.
 Run: python -m tests.offline_skill_engine
 """
+import os, tempfile
+os.environ["DOWNSHIFT_RESULTS_DIR"] = tempfile.mkdtemp(prefix="downshift-test-")  # stub runs never land in results/
 import random
 import re
 import sys

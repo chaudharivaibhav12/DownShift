@@ -1,6 +1,8 @@
 """Offline smoke test: mongomock + synthetic sales data + a stub LLM. No network, no Atlas.
 Run: python -m tests.local_smoke
 """
+import os, tempfile
+os.environ["DOWNSHIFT_RESULTS_DIR"] = tempfile.mkdtemp(prefix="downshift-test-")  # stub runs never land in results/
 import random, sys
 from datetime import datetime, timedelta, timezone
 from bson import json_util, Decimal128

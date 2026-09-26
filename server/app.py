@@ -180,7 +180,9 @@ def _frontier_cost_per_question(adb) -> float:
     docs = list(adb.ledger.find({"path": "learn", "step": {"$exists": False}}, {"costUsd": 1}))
     if docs:
         return sum(d["costUsd"] for d in docs) / len(docs)
-    return 0.02
+    # No measurement yet. The stand-in frontier costs exactly $0.02, so that is a real number in demo modes;
+    # on a fresh live DB we don't invent one (UI shows "—" until a baseline or first learn exists).
+    return 0.02 if demo is not None else None
 
 
 @app.get("/api/state")
@@ -210,7 +212,7 @@ def state():
             "flagged": sum(1 for s in all_skills if s["status"] == "flagged"),
             "spent": round(spent, 6),
             "costPerAnswer": round(sum(a["cost"] for a in last) / len(last), 6) if last else None,
-            "frontierPerAnswer": round(frontier_q, 6),
+            "frontierPerAnswer": round(frontier_q, 6) if frontier_q is not None else None,
             "paths": {p: sum(1 for a in answers if a["path"] == p) for p in ("cheap", "mid", "learn", "frontier")},
         },
         "counts": {"sales": _data().estimated_document_count(), "ledger": adb.ledger.count_documents({}),

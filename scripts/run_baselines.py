@@ -8,6 +8,7 @@ Run:  python -m scripts.run_baselines                       # cheap, frontier, a
 """
 import argparse
 import json
+import os
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -124,11 +125,11 @@ def main():
 
     table = summarize(records, modes)
     print("\n" + table)
-    out = Path("results")
+    out = Path(os.environ.get("DOWNSHIFT_RESULTS_DIR", "results"))
     out.mkdir(exist_ok=True)
     (out / f"baseline_{batch_id}.json").write_text(json.dumps(records, indent=2, default=str))
     (out / f"baseline_{batch_id}.txt").write_text(table)
-    print(f"saved results/baseline_{batch_id}.json and .txt; ledger rows tagged batchId={batch_id}")
+    print(f"saved {out}/baseline_{batch_id}.json and .txt; ledger rows tagged batchId={batch_id}")
 
 
 if __name__ == "__main__":

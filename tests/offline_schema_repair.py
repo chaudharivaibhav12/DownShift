@@ -45,7 +45,20 @@ print("bad repair refused:", r2["repairs"][0]["error"])
 from downshift.answer import answer
 q = next(c for c in base.cases if c["family"] == "top_stores_by_revenue")
 out = answer(adb, data, q["question"], schema.schema_for_prompt(schema.latest(adb.schema_registry, config.DATA_COLLECTION)["fields"]))
-assert out["path"] == "frontier", out["trace"]
-assert adb.skills.count_documents({"status": "flagged"}) == 3
+# a refused repair must not wedge the system: skills go "broken" (off the cheap path), nothing stays "flagged",
+# and new questions may learn again instead of being stuck on frontier-only forever
+assert adb.skills.count_documents({"status": "flagged"}) == 0
+assert adb.skills.count_documents({"status": "broken"}) == 3
+assert out["path"] == "learn", out["trace"]
+print("after refused repair:", out["path"], "| broken:", adb.skills.count_documents({"status": "broken"}))
+
+# reverting the schema (shop -> store_location, which the broken skills read) retries them and brings them back
+data.update_many({"shop": {"$exists": True}}, {"$rename": {"shop": "store_location"}})
+r3 = repair.handle_schema_change(adb, data)
+retried = [rep for rep in r3["repairs"] if rep.get("from") is not None]
+assert len(retried) >= 3 and all(rep["ok"] for rep in retried), r3["repairs"]
+assert adb.skills.count_documents({"status": "broken"}) == 0
+assert adb.skills.count_documents({"status": "flagged"}) == 0
+print("after revert:", [f"{rep['skill']} -> v{rep['to']}" for rep in r3["repairs"]])
 
 print("\nALL SCHEMA-REPAIR CHECKS PASSED")

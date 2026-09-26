@@ -23,8 +23,12 @@ def touches(fields_used: list[str], changed: list[str]) -> bool:
     return False
 
 
+REPAIRABLE = ("promoted", "flagged", "broken")  # flagged/broken skills get another try on every schema change
+
+
 def flag_skills(adb, changed: list[str]) -> list[dict]:
-    hit = [s for s in skills.promoted(adb.skills) if touches(s.get("fieldsUsed", []), changed)]
+    cands = list(adb.skills.find({"status": {"$in": list(REPAIRABLE)}}))
+    hit = [s for s in cands if touches(s.get("fieldsUsed", []), changed)]
     for s in hit:
         adb.skills.update_one({"_id": s["_id"]}, {"$set": {"status": "flagged", "flaggedFor": changed}})
         s["status"] = "flagged"
@@ -132,9 +136,31 @@ def handle_schema_change(adb, data) -> dict:
     result["flagged"] = [f"{s['skillId']}@v{s['version']}" for s in flagged]
     adb.repairs.update_one({"_id": rid}, {"$set": {"stage": "flagged", "flagged": result["flagged"]}})
     adb.repairs.update_one({"_id": rid}, {"$set": {"stage": "repairing"}})
-    for s in flagged:
-        rep = repair_skill(adb, data, s, snap)
-        result["repairs"].append(rep)
-        adb.repairs.update_one({"_id": rid}, {"$push": {"results": rep}})
-    adb.repairs.update_one({"_id": rid}, {"$set": {"stage": "done", "doneAt": datetime.now(timezone.utc)}})
+    try:
+        for s in flagged:
+            try:
+                rep = repair_skill(adb, data, s, snap)
+            except Exception as e:  # noqa: BLE001 - one bad repair must not stop the others or wedge the system
+                rep = {"skill": f"{s['skillId']}@v{s['version']}", "from": s["version"], "to": None, "ok": False,
+                       "cost": 0.0, "error": f"{type(e).__name__}: {e}"}
+            if not rep.get("ok"):
+                # Off the cheap path, but NOT left "flagged": flagged means "repair in progress". A broken skill lets
+                # the frontier learn a fresh skill for its questions, and is retried on the next schema change
+                # (e.g. when the change is reverted).
+                adb.skills.update_one({"_id": s["_id"], "status": "flagged"},
+                                      {"$set": {"status": "broken", "brokenReason": rep.get("error")}})
+                ledger.event(adb, "skill_broken", skill=s["skillId"], version=s["version"], reason=rep.get("error"))
+            result["repairs"].append(rep)
+            adb.repairs.update_one({"_id": rid}, {"$push": {"results": rep}})
+    finally:
+        adb.repairs.update_one({"_id": rid}, {"$set": {"stage": "done", "doneAt": datetime.now(timezone.utc)}})
     return result
+
+
+def repair_in_progress(adb, stale_after_s: int = 600) -> bool:
+    """True while a schema-change repair is running (a crashed run stops counting after `stale_after_s`)."""
+    last = adb.repairs.find_one(sort=[("ts", -1)])
+    if not last or last.get("stage") == "done":
+        return False
+    ts = last["ts"] if last["ts"].tzinfo else last["ts"].replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds() < stale_after_s

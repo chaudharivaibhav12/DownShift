@@ -148,6 +148,46 @@ def f3_params(rng, ctx, i):
             "scope": f"the {store} store" if store else "all stores"}
 
 
+# Held-out wordings for an honest validation run (E14). Never tune prompts or guardrails against these.
+FRESH_TEMPLATES = {
+    "top_stores_by_revenue": [
+        "Which {limit} shops made the most money in {period}?",
+        "Give me the {limit} top-earning locations for {period}, ranked.",
+        "{period}: who were our {limit} biggest stores by revenue?",
+        "Can you rank stores by gross revenue for {period} and keep the top {limit}?",
+        "Top-{limit} revenue stores in {period}, please.",
+        "Across all locations, which {limit} generated the highest revenue in {period}?",
+        "I'd like the {limit} highest-revenue stores for {period}.",
+        "What are the {limit} best stores by money taken in during {period}?",
+        "Store revenue ranking for {period} - show the top {limit}.",
+        "Name the {limit} locations with the largest total sales value in {period}.",
+    ],
+    "top_items_by_tag_in_store": [
+        "What {limit} '{tag}' items move the most units at {store}?",
+        "{store}: which {tag} products sold in the highest quantities? Top {limit}.",
+        "Most-sold '{tag}' items (by units) at the {store} store - give {limit}.",
+        "Rank {tag}-tagged products at {store} by quantity and show {limit}.",
+        "For the {store} shop, the {limit} '{tag}' items with the most units sold?",
+        "Top {limit} by volume among items tagged {tag}, {store} location.",
+        "Which items with tag '{tag}' sold the most pieces in {store}? I need {limit}.",
+        "In the {store} store, list {limit} '{tag}' products ordered by units sold.",
+        "Highest-quantity {tag} items at {store}: top {limit}.",
+        "Units sold leaderboard for '{tag}' items in {store}, top {limit}.",
+    ],
+    "coupon_rate_by_purchase_method": [
+        "How likely were orders to use a coupon in {year} for {scope}, per purchase channel?",
+        "For {scope}, {year}: coupon rate by sales channel (in store / online / phone).",
+        "What fraction of {year} purchases at {scope} had a coupon, by purchase method?",
+        "Per purchase method, the share of coupon orders in {year} ({scope}).",
+        "Coupon adoption by purchase method, {year}, {scope}?",
+        "In {year}, what % of orders used a coupon for {scope}? Split it by how people bought.",
+        "Compare coupon usage rates across purchase methods for {scope} in {year}.",
+        "Share of transactions with coupons in {year} for {scope}, grouped by purchase method.",
+        "{scope} in {year}: for each purchase method, how often was a coupon used (as a rate)?",
+        "Break out the coupon-use rate by channel for {scope}, year {year}.",
+    ],
+}
+
 FAMILIES = {
     "top_stores_by_revenue": {"pipeline": f1_pipeline, "rows": f1_rows, "templates": F1_TEMPLATES,
                               "params": f1_params, "ordered": True, "rate": False},
@@ -170,8 +210,9 @@ def data_context(coll) -> dict:
     return {"years": years, "stores": stores, "tags": tags}
 
 
-def build_cases(coll, per_family: int = 10, holdout_every: int = 3, seed: int = 42) -> list[dict]:
-    """Generate questions with expected answers computed by the reference pipelines."""
+def build_cases(coll, per_family: int = 10, holdout_every: int = 3, seed: int = 42, fresh: bool = False) -> list[dict]:
+    """Generate questions with expected answers computed by the reference pipelines.
+    fresh=True uses FRESH_TEMPLATES (held-out wordings) instead of the tuning set."""
     rng = random.Random(seed)
     ctx = data_context(coll)
     if not (ctx["years"] and ctx["stores"] and ctx["tags"]):
@@ -201,7 +242,8 @@ def build_cases(coll, per_family: int = 10, holdout_every: int = 3, seed: int = 
                 continue
             if fam == "top_stores_by_revenue" and len(rows) < p["limit"]:
                 continue
-            question = spec["templates"][made % len(spec["templates"])].format(**p)
+            templates = FRESH_TEMPLATES[fam] if fresh else spec["templates"]
+            question = templates[made % len(templates)].format(**p)
             query_params = {k: v for k, v in p.items() if k not in _DISPLAY_KEYS}
             cases.append({
                 "caseId": f"{fam}-{made:02d}",

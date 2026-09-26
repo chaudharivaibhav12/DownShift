@@ -6,7 +6,7 @@
 """
 import re
 
-from . import config, gate, learn, ledger, nl2mql, skills, trace
+from . import config, gate, learn, ledger, nl2mql, repair, skills, trace
 
 _WORD = re.compile(r"[a-z0-9]+")
 STOP = {"the", "a", "an", "of", "in", "for", "by", "to", "and", "what", "which", "me", "show", "give", "top",
@@ -103,7 +103,7 @@ def answer(adb, data, question: str, schema_text: str, batch_id: str | None = No
             ledger.event(adb, "escalated", question=question, reason=err)
 
     # learn path. While skills are flagged for repair, the frontier answers but does not learn a duplicate skill.
-    repairing = adb.skills.count_documents({"status": "flagged"}) > 0
+    repairing = repair.repair_in_progress(adb)
     r = learn.learn(adb, data, question, schema_text, batch_id=batch_id, family=family, make_skill=not repairing,
                     replaces=too_narrow)
     out["cost"] += r["cost"]
