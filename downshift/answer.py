@@ -37,6 +37,7 @@ def shortlist(question: str, all_skills: list[dict], k: int = 3) -> list[dict]:
 def answer(adb, data, question: str, schema_text: str, batch_id: str | None = None,
            family: str = "?", case_id: str | None = None) -> dict:
     out = {"question": question, "rows": None, "path": None, "cost": 0.0, "skill": None, "trace": []}
+    too_narrow = None  # skillId of a live skill that could not express this question
     live = skills.promoted(adb.skills)
     with trace.timed() as t:
         candidates = shortlist(question, live) if live else []
@@ -68,6 +69,8 @@ def answer(adb, data, question: str, schema_text: str, batch_id: str | None = No
             else:
                 try:
                     pipeline, typed = skills.render(chosen, obj.get("params") or {})
+                    skills.check_grounded(chosen["params"], typed, question)
+                    skills.check_dates(chosen["params"], typed, question)
                     trace.step("validate params", "check", detail=", ".join(f"{k}={_show(v)}" for k, v in typed.items() if v is not None))
                     rows, db_ms = nl2mql.run_pipeline(data, pipeline)
                     trace.step("aggregate on Atlas", "db", ms=db_ms,
@@ -89,12 +92,20 @@ def answer(adb, data, question: str, schema_text: str, batch_id: str | None = No
             out["trace"].append(f"{tier}: answered with {out['skill']}")
             return out
         out["trace"].append(f"{tier}: failed ({err})")
+        if err and "unknown params" in err:
+            # The model tried to express a constraint (e.g. a store) the skill has no param for. Another model would
+            # only drop it and answer a different question, so learn a skill that can hold it instead.
+            out["trace"].append(f"{tier}: skill cannot express the question; learning")
+            ledger.event(adb, "skill_too_narrow", question=question, skill=chosen["skillId"] if chosen else None, reason=err)
+            too_narrow = chosen["skillId"] if chosen else None
+            break
         if tier == "mid":
             ledger.event(adb, "escalated", question=question, reason=err)
 
     # learn path. While skills are flagged for repair, the frontier answers but does not learn a duplicate skill.
     repairing = adb.skills.count_documents({"status": "flagged"}) > 0
-    r = learn.learn(adb, data, question, schema_text, batch_id=batch_id, family=family, make_skill=not repairing)
+    r = learn.learn(adb, data, question, schema_text, batch_id=batch_id, family=family, make_skill=not repairing,
+                    replaces=too_narrow)
     out["cost"] += r["cost"]
     out["rows"] = r["rows"]
     out["path"] = "frontier" if repairing else "learn"

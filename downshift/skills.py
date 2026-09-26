@@ -12,7 +12,7 @@ A skill document (collection `skills`):
 The template is stored as a string because pipelines are full of `$`-prefixed keys.
 """
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import json_util
 
@@ -53,6 +53,63 @@ def _parse_date(v) -> datetime:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def _exclusive_end(name: str, s: dict) -> bool:
+    """A date param that is an exclusive upper bound (said so in its spec, or its description says exclusive and,
+    if the description also mentions "inclusive", its name marks it as the end)."""
+    if s.get("bound") == "exclusive_end":
+        return True
+    d = (s.get("description") or "").lower()
+    if "exclusive" not in d:
+        return False
+    if "inclusive" not in d:
+        return True
+    n = name.lower()
+    return any(w in n for w in ("end", "until", "before", "upper")) or n in ("to", "to_date")
+
+
+def _fix_exclusive_end(v: datetime) -> datetime:
+    """Small models write the last day of a period ("Q1 2016" -> 2016-03-31) where an exclusive end needs the day
+    after (2016-04-01). A month-end date given for an exclusive bound is taken to mean "through that day"."""
+    nxt = v + timedelta(days=1)
+    return nxt if nxt.day == 1 and v.hour == v.minute == v.second == 0 else v
+
+
+_ALL_WORDS = {"all", "any", "every", "none", "null", "*", "allstores", "anystore", "allmethods", "everything", "na"}
+
+
+def _norm(x) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(x).lower())
+
+
+def _means_all(v, s: dict) -> bool:
+    """For an optional filter, "all"/"any" or a list of every allowed value means: don't filter."""
+    if not isinstance(v, str) or not v.strip():
+        return False
+    if _norm(v) in _ALL_WORDS or _norm(v).startswith("all"):
+        return True
+    vals = s.get("values") or []
+    parts = [p for p in re.split(r"\s*[/,|]\s*|\s+or\s+|\s+and\s+", v) if p]
+    return len(parts) > 1 and bool(vals) and {_norm(p) for p in parts} >= {_norm(x) for x in vals}
+
+
+def check_grounded(spec: dict, typed: dict, question: str) -> None:
+    """Every text param must appear in the question (ignoring case, spaces, punctuation). A value that doesn't is
+    invented: the model picked the wrong skill or hallucinated a filter. Dates and numbers are derived, so skipped."""
+    q = _norm(question)
+    for name, v in typed.items():
+        if v is None or spec.get(name, {}).get("type", "string") != "string":
+            continue
+        if _norm(v) not in q:
+            raise ParamError(f"{name}={v!r} is not in the question")
+
+
+def check_dates(spec: dict, typed: dict, question: str) -> None:
+    from .periods import check_dates as _cd
+    msg = _cd(spec, typed, question)
+    if msg:
+        raise ParamError(msg)
+
+
 def validate_params(spec: dict, given: dict) -> dict:
     """Check and convert model-filled params against the skill's spec. Returns typed values."""
     given = given or {}
@@ -62,6 +119,8 @@ def validate_params(spec: dict, given: dict) -> dict:
     out = {}
     for name, s in spec.items():
         v = given.get(name)
+        if s.get("optional") and _means_all(v, s):
+            v = None
         if v is None or v == "":
             if s.get("optional"):
                 out[name] = None
@@ -73,6 +132,8 @@ def validate_params(spec: dict, given: dict) -> dict:
         t = s.get("type", "string")
         if t == "date":
             v = _parse_date(v)
+            if _exclusive_end(name, s):
+                v = _fix_exclusive_end(v)
         elif t == "int":
             try:
                 v = int(v)
@@ -127,8 +188,22 @@ def placeholders(template) -> set[str]:
     return found
 
 
-def fields_used(pipeline) -> list[str]:
-    """Field paths a pipeline reads: "$a.b" references and plain keys inside $match."""
+def known_fields(schema_text: str) -> set[str]:
+    """Field paths from schema_for_prompt() text ("- items.tags[]: string ...")."""
+    return {m.replace("[]", "") for m in re.findall(r"^- ([^:\s]+):", schema_text or "", re.M)}
+
+
+def fields_used(pipeline, known: set[str] | None = None) -> list[str]:
+    """Field paths a pipeline reads: "$a.b" references and plain keys inside $match. With `known` (the data
+    collection's field paths), names the pipeline computes itself (e.g. $group outputs) are dropped."""
+    out = _fields_used(pipeline)
+    if known:
+        known = {k.replace("[]", "") for k in known}
+        out = [f for f in out if f in known or any(k.startswith(f + ".") for k in known)]
+    return out
+
+
+def _fields_used(pipeline) -> list[str]:
     fields = set()
 
     def walk(v, in_match=False):

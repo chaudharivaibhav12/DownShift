@@ -23,7 +23,10 @@ def _generalize(model, question, pipeline, schema_text):
 
 
 def learn(adb, data, question: str, schema_text: str, model: str | None = None,
-          batch_id: str | None = None, family: str = "?", min_tests: int = 5, make_skill: bool = True) -> dict:
+          batch_id: str | None = None, family: str = "?", min_tests: int = 5, make_skill: bool = True,
+          replaces: str | None = None) -> dict:
+    """replaces: skillId of a live skill that was too narrow for this question; the new skill takes its name, so
+    promoting it retires the narrow version instead of leaving both live."""
     model = model or config.MODELS["frontier"]
     out = {"rows": None, "cost": 0.0, "skill": None, "error": None, "steps": []}
 
@@ -73,7 +76,7 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
         out["error"] = f"bad skill spec: {e}"
         return out
 
-    draft = {"skillId": spec.get("skillId") or "skill", "params": params,
+    draft = {"skillId": replaces or spec.get("skillId") or "skill", "params": params,
              "templateJson": json_util.dumps(template)}
 
     # 3. self-check against the answer we just gave
@@ -108,7 +111,7 @@ def learn(adb, data, question: str, schema_text: str, model: str | None = None,
         examples=[question] + [t["question"] for t in tests[:4]],
         params=params,
         templateJson=draft["templateJson"],
-        fieldsUsed=skills.fields_used(template),
+        fieldsUsed=skills.fields_used(template, skills.known_fields(schema_text)),
         createdBy=model,
         gateTests=tests,
     )

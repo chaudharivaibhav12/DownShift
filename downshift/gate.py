@@ -40,7 +40,9 @@ def run_gate(adb, data, skill: dict, tests: list[dict], model: str | None = None
                 err = f"picked {obj.get('skillId')!r}"
             else:
                 try:
-                    pipeline, _ = skills.render(skill, obj.get("params") or {})
+                    pipeline, typed = skills.render(skill, obj.get("params") or {})
+                    skills.check_grounded(skill["params"], typed, t["question"])
+                    skills.check_dates(skill["params"], typed, t["question"])
                     rows, _ = nl2mql.run_pipeline(data, pipeline)
                     ok = canonical(rows) == t["expected"]
                     err = None if ok else "different result"

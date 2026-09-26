@@ -16,14 +16,21 @@ tags, limits) becomes a placeholder string "{{{{name}}}}" used as a whole JSON v
 A date placeholder is the bare string "{{{{start}}}}" (it is converted to a real date), never {{"$date": "{{{{start}}}}"}}.
 Rules:
 - Param types: "date" (ISO 8601 date, e.g. "2017-08-01"), "int", or "string". Give each a short description,
-  including whether date bounds are inclusive or exclusive.
+  including whether date bounds are inclusive or exclusive, with one example
+  (e.g. "exclusive end: the day after the period, March 2015 -> 2015-04-01").
 - For a string param with a known small set of values in the schema, list them in "values".
 - A filter the question might leave out (e.g. "for all stores") is an optional param: "optional": true. When an
   optional param is not given, the key that holds its placeholder is removed, so put it as its own key in $match.
+- Anticipate the family: if similar questions would often filter on a field this question did not (e.g. one store
+  location, one purchase method), add it as an optional param in its own $match key even though originalParams
+  leaves it out.
 - skillId: short snake_case name of the question family. intent: one sentence describing questions it answers.
 - originalParams: the param values that reproduce the working pipeline exactly.
 - testQuestions: 8 new, varied natural-language questions of the same family with the params each needs.
-  Use values that exist in the schema. Vary wording a lot.
+  Use values that exist in the schema. Vary wording a lot, but every test question must state every required
+  param explicitly: a concrete number for counts/limits, a concrete month, quarter, half or year for dates.
+  No vague periods ("summer", "recently") and no questions without a number when the skill needs one.
+  At least 3 test questions must use each optional param and at least 2 must leave it out.
 
 Reply with ONLY this JSON:
 {{"skillId": "...", "intent": "...", "params": {{"name": {{"type": "...", "description": "...", "optional": false}}}},
@@ -38,12 +45,19 @@ Skills:
 {skills}
 
 Rules:
-- Pick the skill whose intent matches the question. If none fits exactly, answer {{"skillId": null}}.
-- Fill every required param. Dates are ISO "YYYY-MM-DD"; follow each param's description for inclusive/exclusive
-  bounds (e.g. "in 2016" with an exclusive end means start 2016-01-01, end 2017-01-01).
+- First write in "asksFor" what the question asks for: the measure and the grouping (e.g. "revenue per store",
+  "coupon rate per purchase method", "units sold per item"). Pick a skill only if its intent computes exactly that
+  measure. Sharing a store name, a year or the word "sales" is not enough. If none fits, use "skillId": null.
+- Every filter the question states (a store, a tag, a purchase method, ...) must go into one of the skill's params.
+  If the skill has no param for a stated filter, the skill does not fit: use "skillId": null. Never drop a filter.
+- Fill every required param from the question. Numbers are plain integers (5, not "5").
+- Dates are ISO "YYYY-MM-DD". A start is the first day of the period. An exclusive end is the first day AFTER the
+  period: "in 2016" -> 2016-01-01 to 2017-01-01; "March 2015" -> 2015-03-01 to 2015-04-01;
+  "Q1 2016" -> 2016-01-01 to 2016-04-01; "first half of 2017" -> 2017-01-01 to 2017-07-01;
+  "December 2015" -> 2015-12-01 to 2016-01-01.
 - Leave an optional param out when the question does not restrict it.
 
-Reply with ONLY JSON: {{"skillId": "...", "params": {{...}}}}"""
+Reply with ONLY JSON: {{"asksFor": "...", "skillId": "...", "params": {{...}}}}"""
 
 
 def skills_block(skills: list[dict]) -> str:

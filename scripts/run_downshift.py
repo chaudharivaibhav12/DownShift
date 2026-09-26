@@ -46,7 +46,7 @@ def main():
         passed, reason = scorer.score(r["rows"], case)
         records.append({"caseId": case["caseId"], "family": case["family"], "split": case["split"],
                         "path": r["path"], "cost": r["cost"], "passed": passed, "reason": reason,
-                        "skill": r["skill"], "trace": r["trace"]})
+                        "skill": r["skill"], "params": r.get("params"), "trace": r["trace"]})
         print(f"  {'PASS' if passed else 'fail'} {case['caseId']:34} {r['path']:5} ${r['cost']:.5f}  "
               f"{r['skill'] or ''}  {'' if passed else reason[:60]}")
 

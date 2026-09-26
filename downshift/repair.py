@@ -100,7 +100,7 @@ def repair_skill(adb, data, skill: dict, snap: dict, model: str | None = None) -
     new = skills.new_skill(
         adb.skills, skill["skillId"], intent=skill["intent"], examples=skill.get("examples", []),
         params=skill["params"], templateJson=draft["templateJson"],
-        fieldsUsed=skills.fields_used(template), createdBy=model, gateTests=tests,
+        fieldsUsed=skills.fields_used(template, {f["path"] for f in snap["fields"]}), createdBy=model, gateTests=tests,
         repairNote=obj.get("note", ""), repairedFrom=skill["version"])
     report = gate.run_gate(adb, data, new, tests)
     out["cost"] += report["costUsd"]
