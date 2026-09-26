@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://downshift-api.onrender.com/api/:path*" },
+    { "source": "/static/:path*", "destination": "/:path*" },
+    { "source": "/flow", "destination": "/flow.html" }
+  ]
+}

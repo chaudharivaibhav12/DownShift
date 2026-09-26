@@ -1,0 +1,15 @@
+# Render blueprint: the FastAPI engine (API, SSE stream, change-stream watcher) as one always-on web service.
+# Secrets are NOT here: add them in the Render dashboard (Environment -> "Add from .env").
+services:
+  - type: web
+    name: downshift-api
+    runtime: python
+    plan: free
+    region: oregon            # close to the Atlas cluster (AWS us-west-1)
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server.app:app --host 0.0.0.0 --port $PORT --no-access-log
+    healthCheckPath: /api/state
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
