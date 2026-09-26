@@ -220,6 +220,82 @@ def _frontier_cost_per_question(adb) -> float:
     return 0.02 if demo is not None else None
 
 
+# ------------------------------------------------------------------ runs
+
+def _run_rows(adb, batch_id=None):
+    q = {"batchId": {"$ne": None}} if batch_id is None else {"batchId": batch_id}
+    return list(adb.ledger.find(q, {"_id": 0, "ts": 1, "path": 1, "costUsd": 1, "latencyMs": 1,
+                                    "passed": 1, "caseId": 1, "skill": 1, "meta": 1, "batchId": 1}))
+
+
+def _summarise(batch_id: str, rows: list[dict]) -> dict:
+    """One run, summarised from its ledger rows.
+
+    Accuracy is only reported when the rows actually carry it: baseline runs score every
+    question, but `run_downshift` writes its pass/fail to results/*.json and never to Mongo.
+    Reporting None there is deliberate - inventing a number would be worse than omitting it.
+    """
+    ts = sorted(r["ts"] for r in rows)
+    paths, families, models = {}, {}, set()
+    for r in rows:
+        paths[r["path"]] = paths.get(r["path"], 0) + 1
+        fam = (r.get("meta") or {}).get("family") or "?"
+        f = families.setdefault(fam, {"family": fam, "calls": 0, "costUsd": 0.0, "passed": 0, "scored": 0})
+        f["calls"] += 1
+        f["costUsd"] += r.get("costUsd") or 0.0
+        if r.get("passed") is not None:
+            f["scored"] += 1
+            f["passed"] += 1 if r["passed"] else 0
+        if (r.get("meta") or {}).get("model"):
+            models.add(r["meta"]["model"])
+
+    scored = [r for r in rows if r.get("passed") is not None]
+    cases = {r["caseId"] for r in rows if r.get("caseId")}
+    modes = sorted({(r.get("meta") or {}).get("mode") for r in rows if (r.get("meta") or {}).get("mode")})
+    return {
+        "batchId": batch_id,
+        "kind": "downshift" if batch_id.startswith("ds-") else "baseline",
+        "modes": modes,
+        "startedAt": ts[0] if ts else None,
+        "endedAt": ts[-1] if ts else None,
+        "calls": len(rows),
+        "questions": len(cases) or None,
+        "costUsd": round(sum(r.get("costUsd") or 0.0 for r in rows), 6),
+        "latencyMsTotal": sum(r.get("latencyMs") or 0 for r in rows),
+        "paths": paths,
+        "models": sorted(models),
+        "accuracy": ({"passed": sum(1 for r in scored if r["passed"]), "total": len(scored)} if scored else None),
+        "families": sorted(families.values(), key=lambda f: f["family"]),
+    }
+
+
+@app.get("/api/runs")
+def runs():
+    """Every batch in the ledger, newest first."""
+    adb = _adb()
+    by_batch: dict[str, list] = {}
+    for r in _run_rows(adb):
+        by_batch.setdefault(r["batchId"], []).append(r)
+    out = [_summarise(b, rows) for b, rows in by_batch.items()]
+    out.sort(key=lambda r: r["startedAt"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return _clean(out)
+
+
+@app.get("/api/runs/{batch_id}")
+def run_detail(batch_id: str):
+    adb = _adb()
+    rows = _run_rows(adb, batch_id)
+    if not rows:
+        raise HTTPException(404, f"No ledger rows for batch {batch_id}")
+    out = _summarise(batch_id, rows)
+    out["calls_detail"] = sorted(
+        ({"ts": r["ts"], "path": r["path"], "caseId": r.get("caseId"), "skill": r.get("skill"),
+          "costUsd": r.get("costUsd"), "latencyMs": r.get("latencyMs"), "passed": r.get("passed"),
+          "family": (r.get("meta") or {}).get("family"), "model": (r.get("meta") or {}).get("model")}
+         for r in rows), key=lambda r: r["ts"])
+    return _clean(out)
+
+
 @app.get("/api/state")
 def state():
     adb = _adb()
@@ -289,14 +365,24 @@ async def stream():
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+# The Svelte console builds into web/dist. When it is there it is served; when it is not,
+# the original no-build console is, so `git clone && uvicorn` still works with no Node.
+DIST = WEB / "dist"
+HAS_DIST = (DIST / "index.html").is_file()
+
+
 @app.get("/")
 def index():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(DIST / "index.html" if HAS_DIST else WEB / "index.html")
 
 
 @app.get("/flow")
 def flow():
-    return FileResponse(WEB / "flow.html")
+    # the new console owns /flow as a route of the single-page app; the standalone page
+    # remains for the no-build fallback
+    return FileResponse(DIST / "index.html" if HAS_DIST else WEB / "flow.html")
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
+if HAS_DIST:
+    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")

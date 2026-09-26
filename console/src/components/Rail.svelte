@@ -1,5 +1,6 @@
 <script>
-  import { answers, families, repair, selection, select, follow, pending, elapsed } from "../lib/stores.js";
+  import { answers, families, repair, selection, select, follow, pending, elapsed, runs } from "../lib/stores.js";
+  import { fetchRuns } from "../lib/api.js";
   import { pathOf } from "../lib/derive.js";
   import { usd, secs, oid } from "../lib/format.js";
   import AskBox from "./AskBox.svelte";
@@ -8,9 +9,15 @@
     { key: "answer", label: "Answers" },
     { key: "skill", label: "Skills" },
     { key: "repair", label: "Repairs" },
+    { key: "run", label: "Runs" },
   ];
 
   let tab = $state("answer");
+  // run summaries are not part of /api/state, so fetch them the first time the tab is opened
+  $effect(() => {
+    if (tab !== "run") return;
+    fetchRuns().then((r) => runs.set(r)).catch(() => {});
+  });
   let q = $state("");
 
   // follow the newest answer until the user picks something, as the old console did
@@ -26,6 +33,7 @@
   let rows = $derived(
     tab === "answer" ? $answers.filter((a) => match(a.question))
       : tab === "skill" ? $families.filter((f) => match(f.skillId))
+      : tab === "run" ? $runs.filter((r) => match(r.batchId))
       : $repair ? [$repair] : []
   );
 </script>
@@ -51,7 +59,7 @@
       </div>
     {/if}
 
-    {#each rows as r (tab === "answer" ? oid(r._id) : tab === "skill" ? r.skillId : "repair")}
+    {#each rows as r (tab === "answer" ? oid(r._id) : tab === "skill" ? r.skillId : tab === "run" ? r.batchId : "repair")}
       {#if tab === "answer"}
         {@const p = pathOf(r)}
         <button class="item" class:on={$selection.id === oid(r._id)} style="--c:{p.c}"
@@ -66,6 +74,12 @@
           <span class="t mono">{r.skillId}</span>
           <span class="m"><i class="dot"></i>{r.versions.length} version{r.versions.length === 1 ? "" : "s"} · {r.status}</span>
         </button>
+      {:else if tab === "run"}
+        <button class="item" class:on={$selection.id === r.batchId} style="--c:var(--learn)"
+                onclick={() => select("run", r.batchId)}>
+          <span class="t mono">{r.batchId}</span>
+          <span class="m"><i class="dot"></i>{r.questions ?? r.calls} q · ${r.costUsd.toFixed(4)}</span>
+        </button>
       {:else}
         <button class="item" class:on={$selection.kind === "repair"} style="--c:var(--mid)"
                 onclick={() => select("repair", String(r.schemaVersion))}>
@@ -77,6 +91,7 @@
       <p class="empty">
         {tab === "answer" ? "No answers yet. Ask a question to start."
           : tab === "skill" ? "No skills yet. They appear when the frontier model answers a new kind of question."
+          : tab === "run" ? "No runs yet. A run is one batch of questions: a replay, or python -m scripts.run_downshift."
           : "No repairs yet. Simulate a schema change to see one."}
       </p>
     {/each}

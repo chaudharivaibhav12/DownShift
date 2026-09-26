@@ -263,3 +263,38 @@ export function answersToPlay(answers, seen, first, sinceTs) {
 }
 
 export const newestTs = (answers = []) => answers.reduce((m, a) => Math.max(m, tsOf(a)), 0) || null;
+
+/* ---------------------------------------------------------------- runs */
+
+export const runQuestions = (r) => r?.questions || 0;
+export const runCostPerQuestion = (r) => (runQuestions(r) ? r.costUsd / runQuestions(r) : null);
+
+/** What this run would have cost at frontier-only prices, and the saving. Null when there
+    is no frontier baseline, rather than a number made up from a default. */
+export function runVsFrontier(r, frontierPerQuestion) {
+  const q = runQuestions(r);
+  if (!frontierPerQuestion || !q) return null;
+  const frontier = q * frontierPerQuestion;
+  return { frontier, actual: r.costUsd, saved: frontier - r.costUsd,
+           percent: frontier > 0 ? Math.round((1 - r.costUsd / frontier) * 100) : 0 };
+}
+
+/** Path mix as percentages, ordered cheap -> frontier so the bar reads left to right. */
+export function pathMix(r) {
+  const order = ["cheap", "mid", "learn", "frontier"];
+  const paths = r?.paths || {};
+  const total = Object.values(paths).reduce((a, b) => a + b, 0);
+  if (!total) return [];
+  return order
+    .filter((p) => paths[p])
+    .map((p) => ({ path: p, n: paths[p], pct: (paths[p] / total) * 100 }));
+}
+
+/** Accuracy, or an explicit reason it is unavailable - never a fabricated number. */
+export function runAccuracy(r) {
+  if (r?.accuracy) return { ...r.accuracy, available: true };
+  return { available: false,
+           reason: r?.kind === "downshift"
+             ? "This run's pass/fail was written to results/*.json, not to the database."
+             : "No scored rows in the ledger for this run." };
+}

@@ -39,6 +39,9 @@ export async function ask(question) {
   }
 }
 
+export const fetchRuns = () => req("/api/runs");
+export const fetchRun = (id) => req("/api/runs/" + encodeURIComponent(id));
+
 export const replay = () => req("/api/replay", { method: "POST" });
 export const schemaChange = () => req("/api/schema-change", { method: "POST", body: "{}" });
 export const reset = () => req("/api/reset", { method: "POST" });

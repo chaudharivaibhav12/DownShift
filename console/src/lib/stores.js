@@ -36,6 +36,9 @@ export const elapsed = derived(pending, ($p, set) => {
    flow is closed queue up behind it, so asking from another view still gets its animation. */
 export const flowSeenUpTo = writable(null);
 
+/** Run summaries, loaded on demand - they are not part of /api/state. */
+export const runs = writable([]);
+
 export function select(kind, id) {
   selection.set({ kind, id });
   follow.set(false);

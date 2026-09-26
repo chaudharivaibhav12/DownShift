@@ -10,6 +10,7 @@
   import RepairView from "./components/workspace/RepairView.svelte";
   import SkillView from "./components/workspace/SkillView.svelte";
   import FlowView from "./components/workspace/FlowView.svelte";
+  import RunView from "./components/workspace/RunView.svelte";
   import { connect, refresh, answerDetail } from "./lib/api.js";
   import { startRouter } from "./lib/router.js";
   import { registerLiveRegion, announce } from "./lib/a11y.js";
@@ -72,6 +73,8 @@
         <AnswerView answer={$pending ? null : answer} />
       {:else if $selection.kind === "skill" && $selection.id}
         <SkillView skillId={$selection.id} />
+      {:else if $selection.kind === "run" && $selection.id}
+        <RunView batchId={$selection.id} />
       {:else if $selection.kind === "repair"}
         <RepairView />
       {:else}

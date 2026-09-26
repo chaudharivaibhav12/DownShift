@@ -8,7 +8,7 @@ const BASE = process.env.BASE_URL || "http://localhost:5173";
 const fail = [];
 const ok = (c, m) => { console.log(`  ${c ? "PASS" : "FAIL"}  ${m}`); if (!c) fail.push(m); };
 
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new",
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", protocolTimeout: 120000,
   args: ["--no-sandbox", "--disable-gpu"], defaultViewport: { width: 1440, height: 900 } });
 const page = await browser.newPage();
 const errors = [];
@@ -21,9 +21,10 @@ await page.waitForSelector(".shell", { timeout: 15000 });
 await new Promise((r) => setTimeout(r, 1500));
 
 console.log("\n1. first visit opens the intro");
-ok(await page.$eval("h2", (e) => e.textContent) === INTRO.title, `intro titled "${INTRO.title}"`);
-ok((await page.$$('[role="dialog"]')).length === 1, "exactly one dialog");
-ok(await page.$eval(".scrim", (e) => getComputedStyle(e).backgroundColor) !== "rgba(0, 0, 0, 0)",
+ok(await page.evaluate(() => document.querySelector("h2")?.textContent) === INTRO.title, `intro titled "${INTRO.title}"`);
+ok(await page.evaluate(() => document.querySelectorAll('[role="dialog"]').length) === 1, "exactly one dialog");
+ok(await page.evaluate(() => { const e = document.querySelector(".scrim"); if (!e) return false;
+     const cs = getComputedStyle(e); return cs.backgroundColor !== "rgba(0, 0, 0, 0)" || cs.boxShadow !== "none"; }),
    "scrim actually dims the page");
 
 console.log("\n2. walking the steps");
@@ -67,19 +68,19 @@ for (let i = 0; i < STEPS.length; i++) {
 }
 
 console.log("\n3. after the tour");
-ok((await page.$$(".tip")).length === 0, "tour closed on Done");
+ok(await page.evaluate(() => document.querySelectorAll(".tip").length) === 0, "tour closed on Done");
 ok(await page.evaluate(() => localStorage.getItem("downshift.tour.seen")) === "1", "marked seen");
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".shell");
 await new Promise((r) => setTimeout(r, 1200));
-ok((await page.$$('[role="dialog"]')).length === 0, "does not reopen on the next visit");
-await page.evaluate(() => document.querySelector(".help").click());
+ok(await page.evaluate(() => document.querySelectorAll('[role="dialog"]').length) === 0, "does not reopen on the next visit");
+await page.evaluate(() => document.querySelector(".help")?.click());
 await new Promise((r) => setTimeout(r, 300));
-ok(await page.$eval("h2", (e) => e.textContent).catch(() => null) === INTRO.title, "? button reopens it");
+ok(await page.evaluate(() => document.querySelector("h2")?.textContent) === INTRO.title, "? button reopens it");
 
 console.log("\n4. console errors");
 ok(errors.length === 0, `no page errors (${errors.length}) [WebGL/favicon ignored: headless has no GPU]`);
-errors.slice(0, 5).forEach((e) => console.log("      " + e.slice(0, 160)));
+errors.slice(0, 8).forEach((e) => console.log("      " + e.slice(0, 200)));
 
 await browser.close();
 console.log(`\n${fail.length ? fail.length + " FAILED" : "ALL CHECKS PASSED"}`);

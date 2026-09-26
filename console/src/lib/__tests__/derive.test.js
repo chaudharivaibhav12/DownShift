@@ -270,3 +270,37 @@ describe("answersToPlay", () => {
     expect(newestTs([])).toBe(null);
   });
 });
+
+describe("runs", () => {
+  const run = { batchId: "ds-1", kind: "downshift", questions: 30, costUsd: 0.09,
+                paths: { cheap: 28, learn: 6, mid: 2 }, accuracy: null };
+
+  it("cost per question, null when nothing was asked", async () => {
+    const { runCostPerQuestion } = await import("../derive.js");
+    expect(runCostPerQuestion(run)).toBeCloseTo(0.003);
+    expect(runCostPerQuestion({ questions: 0, costUsd: 1 })).toBe(null);
+  });
+
+  it("refuses to compare without a frontier baseline", async () => {
+    const { runVsFrontier } = await import("../derive.js");
+    expect(runVsFrontier(run, 0)).toBe(null);
+    expect(runVsFrontier(run, null)).toBe(null);
+    const v = runVsFrontier(run, 0.004);
+    expect(v.frontier).toBeCloseTo(0.12);
+    expect(v.percent).toBe(25);
+  });
+
+  it("orders the path mix cheap first and drops empty paths", async () => {
+    const { pathMix } = await import("../derive.js");
+    expect(pathMix(run).map((p) => p.path)).toEqual(["cheap", "mid", "learn"]);
+    expect(pathMix(run).reduce((a, p) => a + p.pct, 0)).toBeCloseTo(100);
+    expect(pathMix({ paths: {} })).toEqual([]);
+  });
+
+  it("says why accuracy is missing instead of inventing one", async () => {
+    const { runAccuracy } = await import("../derive.js");
+    expect(runAccuracy(run).available).toBe(false);
+    expect(runAccuracy(run).reason).toContain("results/*.json");
+    expect(runAccuracy({ accuracy: { passed: 21, total: 30 } })).toMatchObject({ available: true, passed: 21 });
+  });
+});
