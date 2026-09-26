@@ -39,6 +39,10 @@ export const flowSeenUpTo = writable(null);
 /** Run summaries, loaded on demand - they are not part of /api/state. */
 export const runs = writable([]);
 
+/** The last failed action, for a visible banner. Screen readers already hear it via announce();
+    everyone else saw nothing - the button just re-enabled. */
+export const lastError = writable(null);
+
 export function select(kind, id) {
   selection.set({ kind, id });
   follow.set(false);

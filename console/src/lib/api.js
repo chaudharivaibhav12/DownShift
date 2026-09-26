@@ -1,10 +1,15 @@
-import { appState, connection, pending } from "./stores.js";
+import { appState, connection, pending, lastError } from "./stores.js";
 import { announce } from "./a11y.js";
 import { oid } from "./format.js";
 
 async function req(path, opts) {
   const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
-  if (!r.ok) throw new Error((await r.text().catch(() => "")) || `${r.status} ${r.statusText}`);
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    let detail = text;
+    try { detail = JSON.parse(text).detail ?? text; } catch { /* not JSON */ }
+    throw new Error(String(detail || `${r.status} ${r.statusText}`));
+  }
   return r.json();
 }
 
@@ -66,6 +71,8 @@ export function connect() {
 }
 
 export function toastError(e) {
-  announce(e.message);
-  return e.message;
+  const message = e?.message || String(e);
+  lastError.set({ message, at: Date.now() });
+  announce(message);
+  return message;
 }

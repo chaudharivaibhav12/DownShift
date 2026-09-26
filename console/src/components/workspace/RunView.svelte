@@ -23,7 +23,10 @@
   let acc = $derived(run ? runAccuracy(run) : null);
 
   // every run's cost per question, so this one can be read against the others
-  let others = $derived($runs.map((r) => ({ id: r.batchId, v: runCostPerQuestion(r) })).filter((r) => r.v != null));
+  // the server returns newest first; the chart is captioned "oldest on the left", so sort
+  let others = $derived([...$runs]
+    .sort((a, b) => new Date(a.startedAt?.$date || a.startedAt) - new Date(b.startedAt?.$date || b.startedAt))
+    .map((r) => ({ id: r.batchId, v: runCostPerQuestion(r) })).filter((r) => r.v != null));
   let worst = $derived(Math.max(...others.map((o) => o.v), cpq || 0, 1e-9));
 </script>
 

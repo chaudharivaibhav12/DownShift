@@ -2,7 +2,7 @@
   import { connection, isDemo, job, stats } from "../lib/stores.js";
   import { replay, schemaChange, toastError } from "../lib/api.js";
   import { usd } from "../lib/format.js";
-  import { selection, select, answers, flowSeenUpTo } from "../lib/stores.js";
+  import { selection, select, answers, flowSeenUpTo, lastError } from "../lib/stores.js";
 
   let { onHelp } = $props();
   let busy = $derived(!!$job.name);
@@ -13,6 +13,13 @@
     try { await fn(); } catch (e) { toastError(e); }
   }
 </script>
+
+{#if $lastError}
+  <div class="errbar" role="alert">
+    <span>{$lastError.message}</span>
+    <button class="x" onclick={() => lastError.set(null)} aria-label="Dismiss">×</button>
+  </div>
+{/if}
 
 <header class="top">
   <div class="brand">DOWNSHIFT</div>
@@ -39,6 +46,10 @@
 </header>
 
 <style>
+  .errbar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; background: var(--bad-bg);
+            color: #8A1C12; border-bottom: 1px solid #F2C4C4; font-size: 13px; }
+  .errbar span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .errbar .x { border: 0; background: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
   .top { height: 56px; display: flex; align-items: center; gap: 18px; padding: 0 20px;
          background: var(--panel); border-bottom: 1px solid var(--line); flex-shrink: 0; }
   .brand { font-weight: 700; font-size: 15px; letter-spacing: .04em; }

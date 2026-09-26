@@ -7,6 +7,8 @@
   let { skillId } = $props();
   let family = $derived($families.find((f) => f.skillId === skillId) || null);
   let pickedVersion = $state(null);
+  // a version picked on one skill must not carry over to the next (header said v3, body showed v1)
+  $effect(() => { skillId; pickedVersion = null; });
   let current = $derived.by(() => {
     if (!family) return null;
     return family.versions.find((v) => v.version === pickedVersion) || family.versions[0];

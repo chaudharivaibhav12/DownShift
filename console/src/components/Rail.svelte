@@ -12,11 +12,30 @@
     { key: "run", label: "Runs" },
   ];
 
-  let tab = $state("answer");
+  // The tab IS the selection's kind. Tabs used to be private state, so clicking "Skills"
+  // changed the list while the workspace kept showing an answer, and a deep link to a skill
+  // left the rail on Answers with nothing highlighted.
+  const TAB_KINDS = new Set(TABS.map((t) => t.key));
+  let tab = $derived(TAB_KINDS.has($selection.kind) ? $selection.kind : "answer");
+
+  function showTab(kind) {
+    if (kind === $selection.kind) return;
+    // land on the first row of that kind, or its empty state
+    const first = kind === "answer" ? oid($answers[0]?._id)
+      : kind === "skill" ? $families[0]?.skillId
+      : kind === "run" ? $runs[0]?.batchId
+      : $repair ? String($repair.schemaVersion) : null;
+    select(kind, first ?? null);
+  }
+
   // run summaries are not part of /api/state, so fetch them the first time the tab is opened
   $effect(() => {
     if (tab !== "run") return;
-    fetchRuns().then((r) => runs.set(r)).catch(() => {});
+    fetchRuns().then((r) => {
+      runs.set(r);
+      // the tab was opened before any run was known, so there was nothing to land on
+      if ($selection.kind === "run" && !$selection.id && r[0]) select("run", r[0].batchId);
+    }).catch(() => {});
   });
   let q = $state("");
 
@@ -42,7 +61,7 @@
   <div class="tabs" role="tablist">
     {#each TABS as t}
       <button role="tab" aria-selected={tab === t.key} class:on={tab === t.key}
-              onclick={() => (tab = t.key)}>{t.label}</button>
+              onclick={() => showTab(t.key)}>{t.label}</button>
     {/each}
   </div>
 
