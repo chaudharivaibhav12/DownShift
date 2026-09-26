@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from downshift import config, db, ledger, repair, schema, skills, trace
+from downshift.watcher import SchemaWatcher
 from downshift.answer import answer
 
 DEMO = os.environ.get("DOWNSHIFT_DEMO") == "1"
@@ -34,6 +35,8 @@ app = FastAPI(title="Downshift")
 WEB = Path(__file__).resolve().parent.parent / "web"
 ENGINE = threading.Lock()          # one engine operation at a time
 JOB = {"name": None, "done": 0, "total": 0}
+SUPPRESS = {"until": 0.0}  # the button renames data itself; the change-stream watcher must not repair it twice
+WATCHER = None
 
 
 def _adb():
@@ -151,12 +154,44 @@ def schema_change(body: SchemaIn):
         old, new = ("storeLocation", "store_location") if has_old else ("store_location", "storeLocation")
 
     def fn():
-        res = data.update_many({old: {"$exists": True}}, {"$rename": {old: new}})
-        ledger.event(_adb(), "documents_changed", renamed=[old, new], count=res.modified_count)
-        repair.handle_schema_change(_adb(), data)
+        SUPPRESS["until"] = time.time() + 3600
+        try:
+            res = data.update_many({old: {"$exists": True}}, {"$rename": {old: new}})
+            ledger.event(_adb(), "documents_changed", renamed=[old, new], count=res.modified_count, source="button")
+            repair.handle_schema_change(_adb(), data)
+        finally:
+            SUPPRESS["until"] = time.time() + 10   # let the watcher's echo of our own rename settle and be dropped
     out = _run_job("schema-change", fn)
     out.update(old=old, new=new)
     return out
+
+
+def _auto_repair(info: dict):
+    """Called by the change-stream watcher when documents in the data collection changed shape."""
+    if time.time() < SUPPRESS["until"]:
+        print(f"[watch] ignoring our own rename ({info['count']} events)")
+        return
+    print(f"[watch] documents changed shape: removed {info['removed']} added {info['added']} ({info['count']} events)")
+    with ENGINE:
+        JOB.update(name="schema-change", done=0, total=0)
+        try:
+            adb = _adb()
+            ledger.event(adb, "documents_changed", renamed=info.get("renamed") or [], count=info["count"],
+                         removed=info["removed"], added=info["added"], source="change stream")
+            r = repair.handle_schema_change(adb, _data())
+            print(f"[watch] schema v{r['version']} changed {r['changed'] or 'nothing'}; "
+                  f"repaired {sum(1 for x in r['repairs'] if x.get('ok'))}/{len(r['repairs'])}")
+        finally:
+            JOB.update(name=None)
+
+
+@app.on_event("startup")
+def _start_watcher():
+    """Real database only (mongomock has no change streams). WATCH_SCHEMA=0 turns it off."""
+    global WATCHER
+    real_db = demo is None or getattr(demo, "real_db", False)
+    if real_db and os.environ.get("WATCH_SCHEMA", "1") != "0":
+        WATCHER = SchemaWatcher(_adb(), _data(), _auto_repair).start()
 
 
 @app.post("/api/reset")
@@ -205,6 +240,7 @@ def state():
     return _clean({
         "demo": demo is not None,
         "mode": MODE,
+        "watcher": WATCHER.status if WATCHER else "off",
         "job": dict(JOB),
         "stats": {
             "answers": len(answers),

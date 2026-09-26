@@ -88,6 +88,8 @@ def snapshot(registry_coll, data_coll, collection_name: str) -> dict:
     prev = registry_coll.find_one({"collection": collection_name}, sort=[("version", -1)])
     prev_paths = {f["path"] for f in prev["fields"]} if prev else set()
     new_paths = {f["path"] for f in fields}
+    if prev and prev_paths == new_paths:
+        return {**prev, "changedFields": []}  # nothing changed: don't mint a new version
     doc = {
         "collection": collection_name,
         "version": (prev["version"] + 1) if prev else 1,
